@@ -1,0 +1,246 @@
+rules_version = '2';
+
+// ===============================================================
+// Assumed Data Model
+// ===============================================================
+//
+// This security rules file enforces the schema and access control for "Who Fed Snoop":
+//
+// 1. Collection: households/{householdId}
+//    Document ID: Auto-generated or UUID string
+//    Fields:
+//      - joinCode: string (required, immutable, exactly 6 chars) - 6-character household invite code
+//      - petName: string (required, 1..40 chars) - Name of the pet
+//      - isPro: bool (required, must be false on client create, immutable by non-admin clients) - Pro tier flag
+//      - createdAt: timestamp (required, immutable) - Household creation timestamp
+//      - schedule: map (required) - Meal window schedule configuration:
+//          - breakfastStartHour: int (required, 0..23)
+//          - dinnerStartHour: int (required, 0..23)
+//      - members: map (required, 1..50 entries, keyed by user UID) - Household members map:
+//          - name: string (required, 1..50 chars)
+//          - fcmToken: string (optional/nullable, max 512 chars)
+//          - joinedAt: timestamp (required)
+//      - lastFeeding: map (optional/nullable) - Denormalized summary of the latest feeding event:
+//          - id: string (required, 1..128 chars)
+//          - mealPeriod: string (required, 'breakfast' | 'dinner')
+//          - windowDate: string (required, 1..30 chars, e.g. YYYY-MM-DD)
+//          - fedByUid: string (required, 1..128 chars, must be a member UID)
+//          - fedByName: string (required, 1..50 chars)
+//          - fedAt: timestamp (required)
+//          - isExtraMeal: bool (optional)
+//
+// 2. Subcollection: households/{householdId}/feedings/{feedingId}
+//    Document ID: Deterministic or auto-generated feeding log ID
+//    Fields:
+//      - id: string (optional, 1..128 chars)
+//      - mealPeriod: string (required, 'breakfast' | 'dinner', immutable)
+//      - windowDate: string (required, 1..30 chars, immutable)
+//      - fedByUid: string (required, 1..128 chars, must match request.auth.uid on create, immutable)
+//      - fedByName: string (required, 1..50 chars, immutable)
+//      - fedAt: timestamp (required, immutable)
+//      - isExtraMeal: bool (required, immutable)
+//
+// ===============================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+
+    // Check if the user is authenticated (including Firebase Anonymous Auth)
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Check if the user holds an admin custom claim
+    function isAdmin() {
+      return isAuthenticated() && request.auth.token.get('admin', false) == true;
+    }
+
+    // Check if the user is a specific UID
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Validate required fields exist on incoming document data
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    // Validate that the document contains only the allowed top-level fields
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    // Validate that specified fields have not been modified during an update
+    function areImmutableFieldsUnchanged(fields) {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny(fields);
+    }
+
+    // Check if the authenticated user is a member of the specified household document
+    function isHouseholdMember(householdId) {
+      return isAuthenticated() &&
+             exists(/databases/$(database)/documents/households/$(householdId)) &&
+             request.auth.uid in get(/databases/$(database)/documents/households/$(householdId)).data.members;
+    }
+
+    // ===============================================================
+    // Domain Validators (Called on BOTH create and update)
+    // ===============================================================
+
+    // Validate the schedule sub-map inside a household document
+    function isValidSchedule(schedule) {
+      return schedule is map &&
+             schedule.keys().hasAll(['breakfastStartHour', 'dinnerStartHour']) &&
+             schedule.keys().hasOnly(['breakfastStartHour', 'dinnerStartHour']) &&
+             schedule.breakfastStartHour is int &&
+             schedule.breakfastStartHour >= 0 &&
+             schedule.breakfastStartHour <= 23 &&
+             schedule.dinnerStartHour is int &&
+             schedule.dinnerStartHour >= 0 &&
+             schedule.dinnerStartHour <= 23;
+    }
+
+    // Validate a single member profile entry inside the members map
+    function isValidMemberEntry(member) {
+      return member is map &&
+             member.keys().hasAll(['name', 'joinedAt']) &&
+             member.keys().hasOnly(['name', 'fcmToken', 'joinedAt']) &&
+             member.name is string &&
+             member.name.size() >= 1 &&
+             member.name.size() <= 50 &&
+             (!('fcmToken' in member) ||
+              member.fcmToken == null ||
+              (member.fcmToken is string && member.fcmToken.size() <= 512)) &&
+             member.joinedAt is timestamp;
+    }
+
+    // Validate the optional/nullable lastFeeding summary map on a household document
+    function isValidLastFeeding(data) {
+      return !('lastFeeding' in data) ||
+             data.lastFeeding == null ||
+             (data.lastFeeding is map &&
+              data.lastFeeding.keys().hasAll(['id', 'mealPeriod', 'windowDate', 'fedByUid', 'fedByName', 'fedAt']) &&
+              data.lastFeeding.keys().hasOnly(['id', 'mealPeriod', 'windowDate', 'fedByUid', 'fedByName', 'fedAt', 'isExtraMeal']) &&
+              data.lastFeeding.id is string &&
+              data.lastFeeding.id.size() >= 1 &&
+              data.lastFeeding.id.size() <= 128 &&
+              data.lastFeeding.mealPeriod in ['breakfast', 'dinner'] &&
+              data.lastFeeding.windowDate is string &&
+              data.lastFeeding.windowDate.size() >= 1 &&
+              data.lastFeeding.windowDate.size() <= 30 &&
+              data.lastFeeding.fedByUid is string &&
+              data.lastFeeding.fedByUid.size() >= 1 &&
+              data.lastFeeding.fedByUid.size() <= 128 &&
+              data.lastFeeding.fedByUid in data.members &&
+              data.lastFeeding.fedByName is string &&
+              data.lastFeeding.fedByName.size() >= 1 &&
+              data.lastFeeding.fedByName.size() <= 50 &&
+              data.lastFeeding.fedAt is timestamp &&
+              (!('isExtraMeal' in data.lastFeeding) || data.lastFeeding.isExtraMeal is bool));
+    }
+
+    // Validate the complete household document schema
+    function isValidHousehold(data) {
+      return hasRequiredFields(['joinCode', 'petName', 'isPro', 'createdAt', 'schedule', 'members']) &&
+             hasOnlyAllowedFields(['joinCode', 'petName', 'isPro', 'createdAt', 'schedule', 'members', 'lastFeeding']) &&
+             data.joinCode is string &&
+             data.joinCode.size() == 6 &&
+             data.petName is string &&
+             data.petName.size() >= 1 &&
+             data.petName.size() <= 40 &&
+             data.isPro is bool &&
+             data.createdAt is timestamp &&
+             isValidSchedule(data.schedule) &&
+             data.members is map &&
+             data.members.size() >= 1 &&
+             data.members.size() <= 50 &&
+             request.auth.uid in data.members &&
+             isValidMemberEntry(data.members[request.auth.uid]) &&
+             isValidLastFeeding(data);
+    }
+
+    // Validate an existing member updating allowed household fields
+    function isValidMemberHouseholdUpdate() {
+      return request.auth.uid in resource.data.members &&
+             areImmutableFieldsUnchanged(['joinCode', 'createdAt']) &&
+             (request.resource.data.isPro == resource.data.isPro || isAdmin()) &&
+             request.resource.data.members.diff(resource.data.members).affectedKeys().hasOnly([request.auth.uid]);
+    }
+
+    // Validate a new user joining the household via joinCode
+    function isValidMemberJoinUpdate() {
+      return !(request.auth.uid in resource.data.members) &&
+             request.resource.data.diff(resource.data).affectedKeys().hasOnly(['members']) &&
+             request.resource.data.members.diff(resource.data.members).affectedKeys().hasOnly([request.auth.uid]);
+    }
+
+    // Validate a feeding log document in households/{householdId}/feedings/{feedingId}
+    function isValidFeeding(data) {
+      return hasRequiredFields(['mealPeriod', 'windowDate', 'fedByUid', 'fedByName', 'fedAt', 'isExtraMeal']) &&
+             hasOnlyAllowedFields(['id', 'mealPeriod', 'windowDate', 'fedByUid', 'fedByName', 'fedAt', 'isExtraMeal']) &&
+             (!('id' in data) || (data.id is string && data.id.size() >= 1 && data.id.size() <= 128)) &&
+             data.mealPeriod in ['breakfast', 'dinner'] &&
+             data.windowDate is string &&
+             data.windowDate.size() >= 1 &&
+             data.windowDate.size() <= 30 &&
+             data.fedByUid is string &&
+             data.fedByUid.size() >= 1 &&
+             data.fedByUid.size() <= 128 &&
+             data.fedByName is string &&
+             data.fedByName.size() >= 1 &&
+             data.fedByName.size() <= 50 &&
+             data.fedAt is timestamp &&
+             data.isExtraMeal is bool;
+    }
+
+    // ===============================================================
+    // Collection Rules
+    // ===============================================================
+
+    match /households/{householdId} {
+      // Authenticated users can read households (needed for querying by joinCode to join, and streaming household state)
+      allow read: if isAuthenticated();
+
+      // Authenticated users can create a household if they include themselves as the initial member and isPro == false
+      allow create: if isAuthenticated() &&
+                       isValidHousehold(request.resource.data) &&
+                       request.resource.data.members.size() == 1 &&
+                       request.resource.data.isPro == false;
+
+      // Authenticated users can update a household if:
+      // (a) They are already a member updating lastFeeding, petName, schedule, or their own member entry without changing isPro
+      // (b) They are joining the household by adding only their own UID key to members while keeping all other fields intact
+      allow update: if isAuthenticated() &&
+                       isValidHousehold(request.resource.data) &&
+                       (isValidMemberHouseholdUpdate() || isValidMemberJoinUpdate());
+
+      // Household deletion from client is disallowed
+      allow delete: if false;
+
+      match /feedings/{feedingId} {
+        // Only members of the parent household can read feeding logs
+        allow read: if isHouseholdMember(householdId);
+
+        // Only members of the parent household can create a feeding document for themselves
+        allow create: if isHouseholdMember(householdId) &&
+                         isValidFeeding(request.resource.data) &&
+                         request.resource.data.fedByUid == request.auth.uid;
+
+        // Historical feeding logs are immutable; updates are disallowed
+        allow update: if false;
+
+        // Only the member who logged the feeding can delete it (used for the 10-second Undo action)
+        allow delete: if isHouseholdMember(householdId) &&
+                         resource.data.fedByUid == request.auth.uid;
+      }
+    }
+
+    // Default deny all other paths
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
