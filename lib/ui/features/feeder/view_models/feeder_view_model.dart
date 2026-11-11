@@ -233,13 +233,11 @@ class FeederViewModel extends ChangeNotifier {
     required String memberName,
     required String petName,
   }) async {
-    final newUid = 'uid_${memberName.trim().toLowerCase()}';
     final created = await _repository.createHousehold(
-      memberUid: newUid,
+      memberUid: _currentMemberUid,
       memberName: memberName,
       petName: petName,
     );
-    _currentMemberUid = newUid;
     _currentMemberName = memberName.trim().isEmpty ? 'Keni' : memberName.trim();
     _householdId = created.id;
     _cancelUndoTimer();
@@ -251,13 +249,11 @@ class FeederViewModel extends ChangeNotifier {
     required String joinCode,
     required String memberName,
   }) async {
-    final newUid = 'uid_${memberName.trim().toLowerCase()}';
     final joined = await _repository.joinHouseholdByCode(
       joinCode: joinCode,
-      memberUid: newUid,
+      memberUid: _currentMemberUid,
       memberName: memberName,
     );
-    _currentMemberUid = newUid;
     _currentMemberName = memberName.trim().isEmpty ? 'Ashley' : memberName.trim();
     _householdId = joined.id;
     _cancelUndoTimer();
