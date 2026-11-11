@@ -7,38 +7,70 @@ rules_version = '2';
 // This security rules file enforces the schema and access control for "Who Fed Snoop":
 //
 // 1. Collection: households/{householdId}
-//    Document ID: Auto-generated or UUID string
+//    Document ID: Auto-generated or deterministic household ID
 //    Fields:
 //      - joinCode: string (required, immutable, exactly 6 chars) - 6-character household invite code
 //      - petName: string (required, 1..40 chars) - Name of the pet
 //      - isPro: bool (required, must be false on client create, immutable by non-admin clients) - Pro tier flag
 //      - createdAt: timestamp (required, immutable) - Household creation timestamp
+//      - dailyTreatLimit: int (optional/nullable, 1..50) - Configurable daily treat allowance/goal
 //      - schedule: map (required) - Meal window schedule configuration:
 //          - breakfastStartHour: int (required, 0..23)
 //          - dinnerStartHour: int (required, 0..23)
+//          - windows: list (optional/nullable, 1..6 entries) of window config maps:
+//              - id: string (required, 1..32 chars)
+//              - period: string (optional/nullable, 1..32 chars)
+//              - label: string (required, 1..24 chars)
+//              - emoji: string (required, 1..8 chars)
+//              - startHour: int (required, 0..23)
+//              - startMinute: int (optional/nullable, 0..59)
+//              - enabled: bool (optional/nullable)
 //      - members: map (required, 1..50 entries, keyed by user UID) - Household members map:
 //          - name: string (required, 1..50 chars)
 //          - fcmToken: string (optional/nullable, max 512 chars)
 //          - joinedAt: timestamp (required)
-//      - lastFeeding: map (optional/nullable) - Denormalized summary of the latest feeding event:
-//          - id: string (required, 1..128 chars)
-//          - mealPeriod: string (required, 'breakfast' | 'dinner')
-//          - windowDate: string (required, 1..30 chars, e.g. YYYY-MM-DD)
-//          - fedByUid: string (required, 1..128 chars, must be a member UID)
+//      - lastFeeding: map (optional/nullable) - Denormalized summary of the latest meal event:
+//          - id: string (required, 1..80 chars)
+//          - mealPeriod: string (required, 1..32 chars)
+//          - windowId: string (optional/nullable, 1..32 chars)
+//          - windowLabel: string (optional/nullable, 1..24 chars)
+//          - windowEmoji: string (optional/nullable, 1..8 chars)
+//          - windowDate: string (required, 1..30 chars, YYYY-MM-DD)
+//          - fedByUid: string (required, 1..128 chars)
 //          - fedByName: string (required, 1..50 chars)
-//          - fedAt: timestamp (required)
-//          - isExtraMeal: bool (optional)
+//          - fedAt: timestamp or ISO-8601 string (required)
+//          - isExtraMeal: bool (optional/nullable)
+//      - todayMeals: map (optional/nullable, max 30 entries) - Recent 48h window deterministicId -> FeedingEvent map
+//      - todayTreats: list (optional/nullable, max 50 entries) - Current logical day's denormalized TreatEvent list
 //
 // 2. Subcollection: households/{householdId}/feedings/{feedingId}
-//    Document ID: Deterministic or auto-generated feeding log ID
+//    Document ID: Deterministic (`YYYY-MM-DD_windowId`) or timestamped bonus meal ID
 //    Fields:
-//      - id: string (optional, 1..128 chars)
-//      - mealPeriod: string (required, 'breakfast' | 'dinner', immutable)
+//      - id: string (optional/nullable, 1..80 chars)
+//      - mealPeriod: string (required, 1..32 chars, immutable)
+//      - windowId: string (optional/nullable, 1..32 chars, immutable)
+//      - windowLabel: string (optional/nullable, 1..24 chars, immutable)
+//      - windowEmoji: string (optional/nullable, 1..8 chars, immutable)
 //      - windowDate: string (required, 1..30 chars, immutable)
 //      - fedByUid: string (required, 1..128 chars, must match request.auth.uid on create, immutable)
 //      - fedByName: string (required, 1..50 chars, immutable)
 //      - fedAt: timestamp (required, immutable)
 //      - isExtraMeal: bool (required, immutable)
+//
+// 3. Subcollection: households/{householdId}/treats/{treatId}
+//    Document ID: Unique treat ID (`treat_YYYY-MM-DD_<ms>_<seq>`)
+//    Fields:
+//      - id: string (optional/nullable, 1..80 chars, immutable)
+//      - preset: string (required, 1..32 chars, immutable)
+//      - label: string (required, 1..40 chars, immutable)
+//      - emoji: string (required, 1..8 chars, immutable)
+//      - quantity: int (required, 1..20, immutable)
+//      - caloriesPerUnit: int (required, 0..2000, immutable)
+//      - logicalDate: string (required, YYYY-MM-DD, immutable)
+//      - givenByUid: string (required, 1..128 chars, must match request.auth.uid on create, immutable)
+//      - givenByName: string (required, 1..50 chars, immutable)
+//      - givenAt: timestamp (required, immutable)
+//      - note: string (optional/nullable, 0..140 chars, immutable)
 //
 // ===============================================================
 
@@ -79,6 +111,30 @@ service cloud.firestore {
       return !request.resource.data.diff(resource.data).affectedKeys().hasAny(fields);
     }
 
+    // Validate an optional/nullable string key inside a map
+    function isValidOptionalString(mapData, field, minLen, maxLen) {
+      return !(field in mapData) ||
+             mapData[field] == null ||
+             (mapData[field] is string &&
+              mapData[field].size() >= minLen &&
+              mapData[field].size() <= maxLen);
+    }
+
+    // Validate logical date format YYYY-MM-DD
+    function isValidLogicalDate(dateStr) {
+      return dateStr is string &&
+             dateStr.size() == 10 &&
+             dateStr.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$');
+    }
+
+    // Validate ISO-8601 date-time string format when serialized inside embedded caches
+    function isValidIsoDateString(dateStr) {
+      return dateStr is string &&
+             dateStr.size() >= 19 &&
+             dateStr.size() <= 40 &&
+             dateStr.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}.*');
+    }
+
     // Check if the authenticated user is a member of the specified household document
     function isHouseholdMember(householdId) {
       return isAuthenticated() &&
@@ -90,17 +146,59 @@ service cloud.firestore {
     // Domain Validators (Called on BOTH create and update)
     // ===============================================================
 
+    // Validate a single custom meal window configuration entry inside schedule.windows
+    function isValidWindowConfig(w) {
+      return w is map &&
+             w.keys().hasAll(['id', 'label', 'emoji', 'startHour']) &&
+             w.keys().hasOnly(['id', 'period', 'label', 'emoji', 'startHour', 'startMinute', 'enabled']) &&
+             w.id is string &&
+             w.id.size() >= 1 &&
+             w.id.size() <= 32 &&
+             isValidOptionalString(w, 'period', 1, 32) &&
+             w.label is string &&
+             w.label.size() >= 1 &&
+             w.label.size() <= 24 &&
+             w.emoji is string &&
+             w.emoji.size() >= 1 &&
+             w.emoji.size() <= 8 &&
+             w.startHour is int &&
+             w.startHour >= 0 &&
+             w.startHour <= 23 &&
+             (!('startMinute' in w) ||
+              w.startMinute == null ||
+              (w.startMinute is int && w.startMinute >= 0 && w.startMinute <= 59)) &&
+             (!('enabled' in w) ||
+              w.enabled == null ||
+              w.enabled is bool);
+    }
+
+    // Validate all 1..6 elements of schedule.windows within CEL limits (no loops in CEL)
+    function isValidWindowList(windows) {
+      return windows is list &&
+             windows.size() >= 1 &&
+             windows.size() <= 6 &&
+             isValidWindowConfig(windows[0]) &&
+             (windows.size() < 2 || isValidWindowConfig(windows[1])) &&
+             (windows.size() < 3 || isValidWindowConfig(windows[2])) &&
+             (windows.size() < 4 || isValidWindowConfig(windows[3])) &&
+             (windows.size() < 5 || isValidWindowConfig(windows[4])) &&
+             (windows.size() < 6 || isValidWindowConfig(windows[5]));
+    }
+
     // Validate the schedule sub-map inside a household document
     function isValidSchedule(schedule) {
       return schedule is map &&
              schedule.keys().hasAll(['breakfastStartHour', 'dinnerStartHour']) &&
-             schedule.keys().hasOnly(['breakfastStartHour', 'dinnerStartHour']) &&
+             schedule.keys().hasOnly(['breakfastStartHour', 'dinnerStartHour', 'windows']) &&
              schedule.breakfastStartHour is int &&
              schedule.breakfastStartHour >= 0 &&
              schedule.breakfastStartHour <= 23 &&
              schedule.dinnerStartHour is int &&
              schedule.dinnerStartHour >= 0 &&
-             schedule.dinnerStartHour <= 23;
+             schedule.dinnerStartHour <= 23 &&
+             (!('windows' in schedule) ||
+              schedule.windows == null ||
+              isValidWindowList(schedule.windows));
     }
 
     // Validate a single member profile entry inside the members map
@@ -123,29 +221,130 @@ service cloud.firestore {
              data.lastFeeding == null ||
              (data.lastFeeding is map &&
               data.lastFeeding.keys().hasAll(['id', 'mealPeriod', 'windowDate', 'fedByUid', 'fedByName', 'fedAt']) &&
-              data.lastFeeding.keys().hasOnly(['id', 'mealPeriod', 'windowDate', 'fedByUid', 'fedByName', 'fedAt', 'isExtraMeal']) &&
+              data.lastFeeding.keys().hasOnly([
+                'id',
+                'mealPeriod',
+                'windowId',
+                'windowLabel',
+                'windowEmoji',
+                'windowDate',
+                'fedByUid',
+                'fedByName',
+                'fedAt',
+                'isExtraMeal'
+              ]) &&
               data.lastFeeding.id is string &&
               data.lastFeeding.id.size() >= 1 &&
-              data.lastFeeding.id.size() <= 128 &&
-              data.lastFeeding.mealPeriod in ['breakfast', 'dinner'] &&
+              data.lastFeeding.id.size() <= 80 &&
+              data.lastFeeding.mealPeriod is string &&
+              data.lastFeeding.mealPeriod.size() >= 1 &&
+              data.lastFeeding.mealPeriod.size() <= 32 &&
+              isValidOptionalString(data.lastFeeding, 'windowId', 1, 32) &&
+              isValidOptionalString(data.lastFeeding, 'windowLabel', 1, 24) &&
+              isValidOptionalString(data.lastFeeding, 'windowEmoji', 1, 8) &&
               data.lastFeeding.windowDate is string &&
               data.lastFeeding.windowDate.size() >= 1 &&
               data.lastFeeding.windowDate.size() <= 30 &&
               data.lastFeeding.fedByUid is string &&
               data.lastFeeding.fedByUid.size() >= 1 &&
               data.lastFeeding.fedByUid.size() <= 128 &&
-              data.lastFeeding.fedByUid in data.members &&
               data.lastFeeding.fedByName is string &&
               data.lastFeeding.fedByName.size() >= 1 &&
               data.lastFeeding.fedByName.size() <= 50 &&
-              data.lastFeeding.fedAt is timestamp &&
-              (!('isExtraMeal' in data.lastFeeding) || data.lastFeeding.isExtraMeal is bool));
+              (data.lastFeeding.fedAt is timestamp || isValidIsoDateString(data.lastFeeding.fedAt)) &&
+              (!('isExtraMeal' in data.lastFeeding) ||
+               data.lastFeeding.isExtraMeal == null ||
+               data.lastFeeding.isExtraMeal is bool));
+    }
+
+    // Validate an embedded treat summary item inside household.todayTreats
+    function isValidTreatSummaryItem(treat) {
+      return treat is map &&
+             treat.keys().hasAll([
+               'preset',
+               'label',
+               'emoji',
+               'quantity',
+               'caloriesPerUnit',
+               'logicalDate',
+               'givenByUid',
+               'givenByName',
+               'givenAt'
+             ]) &&
+             treat.keys().hasOnly([
+               'id',
+               'preset',
+               'label',
+               'emoji',
+               'quantity',
+               'caloriesPerUnit',
+               'logicalDate',
+               'givenByUid',
+               'givenByName',
+               'givenAt',
+               'note'
+             ]) &&
+             isValidOptionalString(treat, 'id', 1, 80) &&
+             treat.preset is string &&
+             treat.preset.size() >= 1 &&
+             treat.preset.size() <= 32 &&
+             treat.label is string &&
+             treat.label.size() >= 1 &&
+             treat.label.size() <= 40 &&
+             treat.emoji is string &&
+             treat.emoji.size() >= 1 &&
+             treat.emoji.size() <= 8 &&
+             treat.quantity is int &&
+             treat.quantity >= 1 &&
+             treat.quantity <= 20 &&
+             treat.caloriesPerUnit is int &&
+             treat.caloriesPerUnit >= 0 &&
+             treat.caloriesPerUnit <= 2000 &&
+             isValidLogicalDate(treat.logicalDate) &&
+             treat.givenByUid is string &&
+             treat.givenByUid.size() >= 1 &&
+             treat.givenByUid.size() <= 128 &&
+             treat.givenByName is string &&
+             treat.givenByName.size() >= 1 &&
+             treat.givenByName.size() <= 50 &&
+             (treat.givenAt is timestamp || isValidIsoDateString(treat.givenAt)) &&
+             isValidOptionalString(treat, 'note', 0, 140);
+    }
+
+    // Validate optional denormalized household fields (dailyTreatLimit, todayMeals, todayTreats)
+    function isValidHouseholdTrackingExtras(data) {
+      return (!('dailyTreatLimit' in data) ||
+              data.dailyTreatLimit == null ||
+              (data.dailyTreatLimit is int &&
+               data.dailyTreatLimit >= 1 &&
+               data.dailyTreatLimit <= 50)) &&
+             (!('todayMeals' in data) ||
+              data.todayMeals == null ||
+              (data.todayMeals is map && data.todayMeals.size() <= 30)) &&
+             (!('todayTreats' in data) ||
+              data.todayTreats == null ||
+              (data.todayTreats is list &&
+               data.todayTreats.size() <= 50 &&
+               (data.todayTreats.size() == 0 ||
+                (isValidTreatSummaryItem(data.todayTreats[0]) &&
+                 isValidTreatSummaryItem(data.todayTreats[data.todayTreats.size() - 1])))));
     }
 
     // Validate the complete household document schema
     function isValidHousehold(data) {
       return hasRequiredFields(['joinCode', 'petName', 'isPro', 'createdAt', 'schedule', 'members']) &&
-             hasOnlyAllowedFields(['joinCode', 'petName', 'isPro', 'createdAt', 'schedule', 'members', 'lastFeeding']) &&
+             hasOnlyAllowedFields([
+               'joinCode',
+               'petName',
+               'isPro',
+               'createdAt',
+               'schedule',
+               'members',
+               'lastFeeding',
+               'dailyTreatLimit',
+               'todayMeals',
+               'todayTreats'
+             ]) &&
              data.joinCode is string &&
              data.joinCode.size() == 6 &&
              data.petName is string &&
@@ -159,15 +358,29 @@ service cloud.firestore {
              data.members.size() <= 50 &&
              request.auth.uid in data.members &&
              isValidMemberEntry(data.members[request.auth.uid]) &&
-             isValidLastFeeding(data);
+             isValidLastFeeding(data) &&
+             isValidHouseholdTrackingExtras(data);
+    }
+
+    // Only enforce lastFeeding authorship when lastFeeding is actually modified to a non-null map,
+    // preventing historical lastFeeding entries from locking out schedule/settings/join updates while
+    // allowing undo restoration to an existing household member's verified feeding doc.
+    function isValidLastFeedingChange(householdId) {
+      return !(request.resource.data.get('lastFeeding', null) != resource.data.get('lastFeeding', null) &&
+               request.resource.data.get('lastFeeding', null) != null) ||
+             request.resource.data.lastFeeding.fedByUid == request.auth.uid ||
+             (request.resource.data.lastFeeding.fedByUid in request.resource.data.members &&
+              exists(/databases/$(database)/documents/households/$(householdId)/feedings/$(request.resource.data.lastFeeding.id)) &&
+              get(/databases/$(database)/documents/households/$(householdId)/feedings/$(request.resource.data.lastFeeding.id)).data.fedByUid == request.resource.data.lastFeeding.fedByUid);
     }
 
     // Validate an existing member updating allowed household fields
-    function isValidMemberHouseholdUpdate() {
+    function isValidMemberHouseholdUpdate(householdId) {
       return request.auth.uid in resource.data.members &&
              areImmutableFieldsUnchanged(['joinCode', 'createdAt']) &&
              (request.resource.data.isPro == resource.data.isPro || isAdmin()) &&
-             request.resource.data.members.diff(resource.data.members).affectedKeys().hasOnly([request.auth.uid]);
+             request.resource.data.members.diff(resource.data.members).affectedKeys().hasOnly([request.auth.uid]) &&
+             isValidLastFeedingChange(householdId);
     }
 
     // Validate a new user joining the household via joinCode
@@ -180,9 +393,25 @@ service cloud.firestore {
     // Validate a feeding log document in households/{householdId}/feedings/{feedingId}
     function isValidFeeding(data) {
       return hasRequiredFields(['mealPeriod', 'windowDate', 'fedByUid', 'fedByName', 'fedAt', 'isExtraMeal']) &&
-             hasOnlyAllowedFields(['id', 'mealPeriod', 'windowDate', 'fedByUid', 'fedByName', 'fedAt', 'isExtraMeal']) &&
-             (!('id' in data) || (data.id is string && data.id.size() >= 1 && data.id.size() <= 128)) &&
-             data.mealPeriod in ['breakfast', 'dinner'] &&
+             hasOnlyAllowedFields([
+               'id',
+               'mealPeriod',
+               'windowId',
+               'windowLabel',
+               'windowEmoji',
+               'windowDate',
+               'fedByUid',
+               'fedByName',
+               'fedAt',
+               'isExtraMeal'
+             ]) &&
+             isValidOptionalString(data, 'id', 1, 80) &&
+             data.mealPeriod is string &&
+             data.mealPeriod.size() >= 1 &&
+             data.mealPeriod.size() <= 32 &&
+             isValidOptionalString(data, 'windowId', 1, 32) &&
+             isValidOptionalString(data, 'windowLabel', 1, 24) &&
+             isValidOptionalString(data, 'windowEmoji', 1, 8) &&
              data.windowDate is string &&
              data.windowDate.size() >= 1 &&
              data.windowDate.size() <= 30 &&
@@ -194,6 +423,59 @@ service cloud.firestore {
              data.fedByName.size() <= 50 &&
              data.fedAt is timestamp &&
              data.isExtraMeal is bool;
+    }
+
+    // Validate a treat log document in households/{householdId}/treats/{treatId}
+    function isValidTreat(data) {
+      return hasRequiredFields([
+               'preset',
+               'label',
+               'emoji',
+               'quantity',
+               'caloriesPerUnit',
+               'logicalDate',
+               'givenByUid',
+               'givenByName',
+               'givenAt'
+             ]) &&
+             hasOnlyAllowedFields([
+               'id',
+               'preset',
+               'label',
+               'emoji',
+               'quantity',
+               'caloriesPerUnit',
+               'logicalDate',
+               'givenByUid',
+               'givenByName',
+               'givenAt',
+               'note'
+             ]) &&
+             isValidOptionalString(data, 'id', 1, 80) &&
+             data.preset is string &&
+             data.preset.size() >= 1 &&
+             data.preset.size() <= 32 &&
+             data.label is string &&
+             data.label.size() >= 1 &&
+             data.label.size() <= 40 &&
+             data.emoji is string &&
+             data.emoji.size() >= 1 &&
+             data.emoji.size() <= 8 &&
+             data.quantity is int &&
+             data.quantity >= 1 &&
+             data.quantity <= 20 &&
+             data.caloriesPerUnit is int &&
+             data.caloriesPerUnit >= 0 &&
+             data.caloriesPerUnit <= 2000 &&
+             isValidLogicalDate(data.logicalDate) &&
+             data.givenByUid is string &&
+             data.givenByUid.size() >= 1 &&
+             data.givenByUid.size() <= 128 &&
+             data.givenByName is string &&
+             data.givenByName.size() >= 1 &&
+             data.givenByName.size() <= 50 &&
+             data.givenAt is timestamp &&
+             isValidOptionalString(data, 'note', 0, 140);
     }
 
     // ===============================================================
@@ -208,14 +490,17 @@ service cloud.firestore {
       allow create: if isAuthenticated() &&
                        isValidHousehold(request.resource.data) &&
                        request.resource.data.members.size() == 1 &&
-                       request.resource.data.isPro == false;
+                       request.resource.data.isPro == false &&
+                       (!('lastFeeding' in request.resource.data) ||
+                        request.resource.data.lastFeeding == null ||
+                        request.resource.data.lastFeeding.fedByUid == request.auth.uid);
 
       // Authenticated users can update a household if:
-      // (a) They are already a member updating lastFeeding, petName, schedule, or their own member entry without changing isPro
+      // (a) They are already a member updating lastFeeding, todayMeals, todayTreats, dailyTreatLimit, petName, schedule, or their own member entry without changing isPro
       // (b) They are joining the household by adding only their own UID key to members while keeping all other fields intact
       allow update: if isAuthenticated() &&
                        isValidHousehold(request.resource.data) &&
-                       (isValidMemberHouseholdUpdate() || isValidMemberJoinUpdate());
+                       (isValidMemberHouseholdUpdate(householdId) || isValidMemberJoinUpdate());
 
       // Household deletion from client is disallowed
       allow delete: if false;
@@ -232,9 +517,24 @@ service cloud.firestore {
         // Historical feeding logs are immutable; updates are disallowed
         allow update: if false;
 
-        // Only the member who logged the feeding can delete it (used for the 10-second Undo action)
-        allow delete: if isHouseholdMember(householdId) &&
-                         resource.data.fedByUid == request.auth.uid;
+        // Members of the parent household can delete feeding logs (used for Undo / pack cleanup)
+        allow delete: if isHouseholdMember(householdId);
+      }
+
+      match /treats/{treatId} {
+        // Only members of the parent household can read treat logs
+        allow read: if isHouseholdMember(householdId);
+
+        // Only members of the parent household can create a treat document for themselves
+        allow create: if isHouseholdMember(householdId) &&
+                         isValidTreat(request.resource.data) &&
+                         request.resource.data.givenByUid == request.auth.uid;
+
+        // Historical treat logs are immutable; updates are disallowed
+        allow update: if false;
+
+        // Members of the parent household can delete treat logs (used for Undo / Treat Jar removal)
+        allow delete: if isHouseholdMember(householdId);
       }
     }
 

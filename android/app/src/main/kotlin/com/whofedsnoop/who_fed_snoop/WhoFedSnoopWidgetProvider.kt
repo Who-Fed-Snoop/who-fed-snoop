@@ -30,6 +30,10 @@ class WhoFedSnoopWidgetProvider : AppWidgetProvider() {
         const val KEY_SUBHEADLINE = "subheadline"
         const val KEY_IS_FED = "isFed"
         const val KEY_MEAL_PERIOD = "mealPeriod"
+        const val KEY_WINDOW_EMOJI = "windowEmoji"
+        const val KEY_NEXT_TRANSITION_EPOCH_MS = "nextTransitionEpochMs"
+        const val KEY_NEXT_WINDOW_LABEL = "nextWindowLabel"
+        const val KEY_NEXT_WINDOW_EMOJI = "nextWindowEmoji"
         const val KEY_HOUSEHOLD_ID = "householdId"
 
         fun updateAllWidgets(context: Context) {
@@ -48,16 +52,46 @@ class WhoFedSnoopWidgetProvider : AppWidgetProvider() {
         ) {
             val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             val petName = prefs.getString(KEY_PET_NAME, "Snoop") ?: "Snoop"
-            val headline = prefs.getString(KEY_HEADLINE, "🥣 $petName needs Breakfast")
+            val storedHeadline = prefs.getString(KEY_HEADLINE, "🥣 $petName needs Breakfast")
                 ?: "🥣 $petName needs Breakfast"
-            val subheadline = prefs.getString(
+            val storedSubheadline = prefs.getString(
                 KEY_SUBHEADLINE,
                 "Tap to log & notify partner"
             ) ?: "Tap to log & notify partner"
-            val isFed = prefs.getBoolean(KEY_IS_FED, false)
-            val mealPeriod = (prefs.getString(KEY_MEAL_PERIOD, "breakfast") ?: "breakfast").uppercase()
+            val storedIsFed = prefs.getBoolean(KEY_IS_FED, false)
+            val storedMealPeriod =
+                (prefs.getString(KEY_MEAL_PERIOD, "Breakfast") ?: "Breakfast").ifBlank { "Breakfast" }
+            val storedWindowEmoji =
+                (prefs.getString(KEY_WINDOW_EMOJI, "🐾") ?: "🐾").ifBlank { "🐾" }
+            val nextTransitionEpochMs = prefs.getLong(KEY_NEXT_TRANSITION_EPOCH_MS, 0L)
+            val storedNextWindowLabel = prefs.getString(KEY_NEXT_WINDOW_LABEL, "") ?: ""
+            val storedNextWindowEmoji =
+                (prefs.getString(KEY_NEXT_WINDOW_EMOJI, "🐾") ?: "🐾").ifBlank { "🐾" }
             val householdId = prefs.getString(KEY_HOUSEHOLD_ID, "household_snoop_01")
                 ?: "household_snoop_01"
+
+            val hasWindowRolledOver =
+                nextTransitionEpochMs > 0L && System.currentTimeMillis() >= nextTransitionEpochMs
+
+            val isFed: Boolean
+            val windowLabel: String
+            val windowEmoji: String
+            val headline: String
+            val subheadline: String
+
+            if (hasWindowRolledOver) {
+                isFed = false
+                windowLabel = storedNextWindowLabel.ifBlank { storedMealPeriod }
+                windowEmoji = storedNextWindowEmoji
+                headline = "$windowEmoji $petName needs $windowLabel"
+                subheadline = "Tap to log ${windowLabel.lowercase()} & notify partner"
+            } else {
+                isFed = storedIsFed
+                windowLabel = storedMealPeriod
+                windowEmoji = storedWindowEmoji
+                headline = storedHeadline
+                subheadline = storedSubheadline
+            }
 
             val views = RemoteViews(context.packageName, R.layout.who_fed_snoop_widget)
 
@@ -66,7 +100,7 @@ class WhoFedSnoopWidgetProvider : AppWidgetProvider() {
                 "setBackgroundResource",
                 if (isFed) R.drawable.widget_background_fed else R.drawable.widget_background_hungry
             )
-            views.setTextViewText(R.id.widget_badge, "🐾 $mealPeriod WINDOW")
+            views.setTextViewText(R.id.widget_badge, "$windowEmoji ${windowLabel.uppercase()} WINDOW")
             views.setTextColor(
                 R.id.widget_badge,
                 Color.parseColor(if (isFed) "#059669" else "#D97706")
@@ -114,4 +148,3 @@ class WhoFedSnoopWidgetProvider : AppWidgetProvider() {
         }
     }
 }
-

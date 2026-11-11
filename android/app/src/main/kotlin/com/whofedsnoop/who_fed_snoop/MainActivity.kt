@@ -14,9 +14,27 @@ class MainActivity : FlutterActivity() {
     private var methodChannel: MethodChannel? = null
     private var initialDeepLink: String? = null
 
+    /**
+     * Extracts any incoming deep-link / NFC URI (`/tap`, `/join`, `/s`) and clears
+     * `intent.data` immediately so configuration changes or engine recreations
+     * never re-fire a one-shot action like `/tap`.
+     */
+    private fun consumeDeepLinkIntent(targetIntent: Intent?): String? {
+        val dataString = targetIntent?.dataString
+        if (!dataString.isNullOrEmpty()) {
+            targetIntent.data = null
+            setIntent(targetIntent)
+            return dataString
+        }
+        return null
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        initialDeepLink = intent?.dataString
+        val launchedLink = consumeDeepLinkIntent(intent)
+        if (!launchedLink.isNullOrEmpty()) {
+            initialDeepLink = launchedLink
+        }
 
         val channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
         methodChannel = channel
@@ -28,6 +46,9 @@ class MainActivity : FlutterActivity() {
                         WhoFedSnoopWidgetProvider.PREFS_NAME,
                         Context.MODE_PRIVATE
                     )
+                    val nextTransitionEpochMs =
+                        (call.argument<Number>("nextTransitionEpochMs"))?.toLong() ?: 0L
+
                     prefs.edit()
                         .putString(
                             WhoFedSnoopWidgetProvider.KEY_PET_NAME,
@@ -47,7 +68,23 @@ class MainActivity : FlutterActivity() {
                         )
                         .putString(
                             WhoFedSnoopWidgetProvider.KEY_MEAL_PERIOD,
-                            call.argument<String>("mealPeriod") ?: "breakfast"
+                            call.argument<String>("mealPeriod") ?: "Breakfast"
+                        )
+                        .putString(
+                            WhoFedSnoopWidgetProvider.KEY_WINDOW_EMOJI,
+                            call.argument<String>("windowEmoji") ?: "🐾"
+                        )
+                        .putLong(
+                            WhoFedSnoopWidgetProvider.KEY_NEXT_TRANSITION_EPOCH_MS,
+                            nextTransitionEpochMs
+                        )
+                        .putString(
+                            WhoFedSnoopWidgetProvider.KEY_NEXT_WINDOW_LABEL,
+                            call.argument<String>("nextWindowLabel") ?: ""
+                        )
+                        .putString(
+                            WhoFedSnoopWidgetProvider.KEY_NEXT_WINDOW_EMOJI,
+                            call.argument<String>("nextWindowEmoji") ?: "🐾"
                         )
                         .putString(
                             WhoFedSnoopWidgetProvider.KEY_HOUSEHOLD_ID,
@@ -70,10 +107,16 @@ class MainActivity : FlutterActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        setIntent(intent)
-        val dataString = intent.dataString
+        val dataString = consumeDeepLinkIntent(intent)
         if (!dataString.isNullOrEmpty()) {
-            methodChannel?.invokeMethod("onDeepLink", dataString)
+            val channel = methodChannel
+            if (channel != null) {
+                channel.invokeMethod("onDeepLink", dataString)
+            } else {
+                initialDeepLink = dataString
+            }
+        } else {
+            setIntent(intent)
         }
     }
 }
