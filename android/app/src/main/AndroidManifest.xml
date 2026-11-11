@@ -45,6 +45,19 @@
                 <data android:scheme="https" android:host="www.whofedsnoop.com" android:pathPrefix="/tap" />
             </intent-filter>
         </activity>
+
+        <!-- Android Home Screen AppWidget ("Who Fed Snoop?") -->
+        <receiver
+            android:name=".WhoFedSnoopWidgetProvider"
+            android:exported="true"
+            android:label="Who Fed Snoop?">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/who_fed_snoop_widget_info" />
+        </receiver>
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

@@ -68,6 +68,14 @@ Future<void> main() async {
     initialMemberUid: initialMemberUid,
   );
 
+  // Connect Android App Links / NFC / Home Screen Widget button & Web URL routing
+  final initialUri = await widgetSyncService.initDeepLinkBridge(
+    onDeepLinkReceived: viewModel.handleIncomingUri,
+  );
+  if (initialUri != null) {
+    await viewModel.handleIncomingUri(initialUri);
+  }
+
   runApp(WhoFedSnoopApp(viewModel: viewModel));
 }
 

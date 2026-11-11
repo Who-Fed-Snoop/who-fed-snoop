@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 
 import '../../../../data/repositories/household_repository.dart';
 import '../../../../data/services/widget_sync_service.dart';
+import '../../../../domain/models/deep_link_route.dart';
 import '../../../../domain/models/feeding_event.dart';
 import '../../../../domain/models/household.dart';
 import '../../../../domain/models/meal_window.dart';
@@ -220,9 +221,16 @@ class FeederViewModel extends ChangeNotifier {
     }
   }
 
-  /// Switches the active phone persona between Keni and Ashley for testing.
+  /// Switches the active phone persona between Keni and Ashley.
+  ///
+  /// When running against live Firestore, keeps [_currentMemberUid] anchored to
+  /// the authenticated device UID so `firestore.rules` (`fedByUid == request.auth.uid`)
+  /// is always satisfied; when running against [InMemoryHouseholdRepository],
+  /// switches the simulated UID as well.
   void switchActiveMember({required String uid, required String name}) {
-    _currentMemberUid = uid;
+    if (_repository is InMemoryHouseholdRepository) {
+      _currentMemberUid = uid;
+    }
     _currentMemberName = name;
     _cancelUndoTimer();
     notifyListeners();
@@ -258,6 +266,43 @@ class FeederViewModel extends ChangeNotifier {
     _householdId = joined.id;
     _cancelUndoTimer();
     _subscribeToHousehold(joined.id);
+  }
+
+  /// Processes incoming deep links from:
+  /// - Android Home Screen Widget "I Fed Snoop" button (`/tap/{householdId}`)
+  /// - Physical NFC food-bin sticker (`/tap/{householdId}`)
+  /// - Partner invite link (`/join/{joinCode}`)
+  /// - Dog Sitter temporary web pass (`/s/{joinCode}`)
+  Future<void> handleIncomingUri(Uri uri) async {
+    final route = WhofedsnoopDeepLink.tryParse(uri);
+    if (route == null) return;
+
+    switch (route.kind) {
+      case DeepLinkKind.nfcTapToFeed:
+        await markPetFed();
+        final petName = _household?.petName ?? 'Snoop';
+        _partnerNotificationBanner =
+            '🏷️ Instant Tap-to-Feed: Logged ${activeWindow.period.label} for $petName!';
+        notifyListeners();
+      case DeepLinkKind.joinHousehold:
+        await joinHousehold(
+          joinCode: route.targetId,
+          memberName: _currentMemberName,
+        );
+      case DeepLinkKind.sitterGuestPass:
+        _currentMemberName = 'Dog Sitter';
+        try {
+          await joinHousehold(
+            joinCode: route.targetId,
+            memberName: 'Dog Sitter',
+          );
+        } on Object {
+          // If already in the default household, keep Dog Sitter mode active.
+        }
+        _partnerNotificationBanner =
+            '🦴 Dog Sitter Guest Pass active — tap below when you feed ${_household?.petName ?? "Snoop"}!';
+        notifyListeners();
+    }
   }
 
   void _startUndoCountdown(String feedingId) {

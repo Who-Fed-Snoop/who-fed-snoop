@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 
 import '../../domain/models/household.dart';
 import '../../domain/models/meal_window.dart';
@@ -23,12 +24,62 @@ class HomeWidgetSnapshot {
   final DateTime updatedAt;
 }
 
-/// Keeps the Android Home Screen Widget synchronized whenever a meal is logged
-/// or the meal window transitions.
+/// Keeps the Android Home Screen Widget (`WhoFedSnoopWidgetProvider`) synchronized
+/// whenever a meal is logged or the meal window transitions, and bridges native
+/// Android App Links / NFC / Widget tap intents.
 class WidgetSyncService {
+  static const MethodChannel _platformChannel = MethodChannel(
+    'com.whofedsnoop.who_fed_snoop/platform',
+  );
+
   HomeWidgetSnapshot? _latestSnapshot;
 
   HomeWidgetSnapshot? get latestSnapshot => _latestSnapshot;
+
+  /// Registers a listener for deep-link / NFC / Widget button taps delivered
+  /// while the Android activity is running (`onNewIntent`) and returns any
+  /// initial launch deep link.
+  Future<Uri?> initDeepLinkBridge({
+    required void Function(Uri uri) onDeepLinkReceived,
+  }) async {
+    if (kIsWeb) {
+      final base = Uri.base;
+      if (base.pathSegments.length >= 2) {
+        return base;
+      }
+      return null;
+    }
+
+    if (defaultTargetPlatform != TargetPlatform.android) {
+      return null;
+    }
+
+    _platformChannel.setMethodCallHandler((MethodCall call) async {
+      if (call.method == 'onDeepLink') {
+        final raw = call.arguments as String?;
+        if (raw != null && raw.isNotEmpty) {
+          final parsed = Uri.tryParse(raw);
+          if (parsed != null) {
+            onDeepLinkReceived(parsed);
+          }
+        }
+      }
+    });
+
+    try {
+      final rawInitial = await _platformChannel.invokeMethod<String>(
+        'getInitialDeepLink',
+      );
+      if (rawInitial != null && rawInitial.isNotEmpty) {
+        return Uri.tryParse(rawInitial);
+      }
+    } on MissingPluginException {
+      // Safe no-op during widget tests
+    } on PlatformException {
+      // Safe no-op if platform channel fails
+    }
+    return null;
+  }
 
   Future<HomeWidgetSnapshot> syncHouseholdState({
     required Household household,
@@ -68,6 +119,28 @@ class WidgetSyncService {
     );
 
     _latestSnapshot = snapshot;
+
+    // Push snapshot to the native Android AppWidget if running on Android.
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+      try {
+        await _platformChannel.invokeMethod<bool>(
+          'updateHomeWidget',
+          <String, Object?>{
+            'petName': snapshot.petName,
+            'headline': snapshot.headline,
+            'subheadline': snapshot.subheadline,
+            'isFed': snapshot.isFed,
+            'mealPeriod': snapshot.mealPeriod.name,
+            'householdId': household.id,
+          },
+        );
+      } on MissingPluginException {
+        // Ignored in unit/widget test environments.
+      } on PlatformException {
+        // Ignored if launcher widget service is unavailable.
+      }
+    }
+
     return snapshot;
   }
 

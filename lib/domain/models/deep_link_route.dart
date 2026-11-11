@@ -1,12 +1,13 @@
 import 'package:flutter/foundation.dart';
 
-/// Represents deep-link actions routed through `https://whofedsnoop.com`.
+/// Represents deep-link actions routed through `https://whofedsnoop.com`
+/// or `https://who-fed-snoop.web.app`.
 enum DeepLinkKind {
   /// `https://whofedsnoop.com/join/{joinCode}` — 1-tap partner invite link.
   joinHousehold,
 
   /// `https://whofedsnoop.com/tap/{householdId}` — Encoded on the physical NFC
-  /// food-bin sticker so tapping an unlocked phone logs the meal automatically.
+  /// food-bin sticker (or Android Home Screen Widget button) so tapping logs the meal automatically.
   nfcTapToFeed,
 
   /// `https://whofedsnoop.com/s/{sitterToken}` — Temporary web pass for a dog sitter.
@@ -15,12 +16,16 @@ enum DeepLinkKind {
 
 @immutable
 class WhofedsnoopDeepLink {
-  const WhofedsnoopDeepLink({
-    required this.kind,
-    required this.targetId,
-  });
+  const WhofedsnoopDeepLink({required this.kind, required this.targetId});
 
   static const String canonicalHost = 'whofedsnoop.com';
+  static const Set<String> supportedHosts = <String>{
+    'whofedsnoop.com',
+    'www.whofedsnoop.com',
+    'who-fed-snoop.web.app',
+    'who-fed-snoop.firebaseapp.com',
+    'localhost',
+  };
 
   final DeepLinkKind kind;
 
@@ -39,11 +44,10 @@ class WhofedsnoopDeepLink {
   static Uri buildSitterPassUri(String sitterToken) =>
       Uri.https(canonicalHost, '/s/${sitterToken.trim()}');
 
-  /// Parses an incoming Android App Link / Universal Link / NFC URI from
-  /// `https://whofedsnoop.com` or `https://www.whofedsnoop.com`.
+  /// Parses an incoming Android App Link / Universal Link / NFC / Web URI.
   static WhofedsnoopDeepLink? tryParse(Uri uri) {
     final host = uri.host.toLowerCase();
-    if (host != canonicalHost && host != 'www.$canonicalHost') {
+    if (host.isNotEmpty && !supportedHosts.contains(host)) {
       return null;
     }
 

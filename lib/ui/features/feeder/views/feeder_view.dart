@@ -129,7 +129,7 @@ class _MemberSwitcherBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isKeni = viewModel.currentMemberUid == InMemoryHouseholdRepository.keniUid;
+    final isKeni = viewModel.currentMemberName.toLowerCase() == 'keni';
     final partnerName = isKeni ? 'Ashley' : 'Keni';
 
     return Wrap(

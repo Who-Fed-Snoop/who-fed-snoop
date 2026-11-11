@@ -17,6 +17,7 @@ void main() {
         widgetSyncService: widgetSyncService,
         clock: () => fixedNow,
       );
+      addTearDown(viewModel.dispose);
 
       await tester.pumpWidget(WhoFedSnoopApp(viewModel: viewModel));
       await tester.pump();
@@ -54,6 +55,7 @@ void main() {
         widgetSyncService: widgetSyncService,
         clock: () => fixedNow,
       );
+      addTearDown(viewModel.dispose);
 
       await tester.pumpWidget(WhoFedSnoopApp(viewModel: viewModel));
       await tester.pump();
@@ -75,6 +77,49 @@ void main() {
 
       expect(viewModel.isHistoryExpanded, isTrue);
       expect(viewModel.history, isNotEmpty);
+    },
+  );
+
+  testWidgets(
+    'NFC / Android Widget /tap deep link automatically logs meal and /s activates Dog Sitter pass',
+    (WidgetTester tester) async {
+      final fixedNow = DateTime(2026, 11, 8, 8, 45); // Breakfast window
+      final repository = InMemoryHouseholdRepository(initialClock: fixedNow);
+      final widgetSyncService = WidgetSyncService();
+      final viewModel = FeederViewModel(
+        repository: repository,
+        widgetSyncService: widgetSyncService,
+        clock: () => fixedNow,
+      );
+      addTearDown(viewModel.dispose);
+
+      await tester.pumpWidget(WhoFedSnoopApp(viewModel: viewModel));
+      await tester.pump();
+
+      // 1. Activate Dog Sitter Guest Pass (/s/SNOOP4)
+      await viewModel.handleIncomingUri(
+        Uri.parse('https://whofedsnoop.com/s/SNOOP4'),
+      );
+      await tester.pump();
+
+      expect(viewModel.currentMemberName, equals('Dog Sitter'));
+      expect(find.textContaining('Dog Sitter Guest Pass active'), findsOneWidget);
+
+      // 2. Trigger NFC / Widget 1-tap feed link (/tap/household_snoop_01)
+      await viewModel.handleIncomingUri(
+        Uri.parse('https://whofedsnoop.com/tap/household_snoop_01'),
+      );
+      await tester.pump();
+
+      expect(find.text('✅ Snoop is Fed!'), findsOneWidget);
+      expect(
+        find.textContaining('Dog Sitter fed Snoop Breakfast'),
+        findsWidgets,
+      );
+
+      // Advance 10 seconds to verify the Undo timer expires cleanly
+      await tester.pump(const Duration(seconds: 10));
+      expect(viewModel.canUndo, isFalse);
     },
   );
 }
