@@ -3,7 +3,9 @@
 **Who Fed Snoop?** is a 1-tap pet feeding tracker and instant partner notifier built for **Keni, Ashley, and Snoop**—designed around the **2-Second Rule** so neither of you ever gets tricked into serving second breakfast again.
 
 - **Domain:** [whofedsnoop.com](https://whofedsnoop.com)
+- **Live Web App:** [who-fed-snoop.web.app](https://who-fed-snoop.web.app)
 - **GitHub Organization:** [github.com/Who-Fed-Snoop](https://github.com/Who-Fed-Snoop)
+- **Original Vision, Product & Business Plan:** [docs/PROJECT_VISION_AND_PLAN.md](docs/PROJECT_VISION_AND_PLAN.md)
 
 ---
 
