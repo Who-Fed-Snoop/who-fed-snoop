@@ -7,6 +7,7 @@
 - **GitHub Organization:** [github.com/Who-Fed-Snoop](https://github.com/Who-Fed-Snoop)
 - **Original Vision, Product & Business Plan:** [docs/PROJECT_VISION_AND_PLAN.md](docs/PROJECT_VISION_AND_PLAN.md)
 - **UI Design Direction & Architectural Decisions:** [docs/DESIGN_DIRECTION_AND_DECISIONS.md](docs/DESIGN_DIRECTION_AND_DECISIONS.md)
+- **Productization Gap Analysis & Roadmap:** [docs/PRODUCTIZATION_GAPS_AND_ROADMAP.md](docs/PRODUCTIZATION_GAPS_AND_ROADMAP.md)
 
 ---
 
