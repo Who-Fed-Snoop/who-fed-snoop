@@ -30,9 +30,7 @@ class HouseholdMember {
       uid: uid,
       name: (json['name'] as String?) ?? 'Member',
       fcmToken: json['fcmToken'] as String?,
-      joinedAt: rawJoinedAt is String
-          ? DateTime.parse(rawJoinedAt).toLocal()
-          : DateTime.now(),
+      joinedAt: rawJoinedAt is String ? DateTime.parse(rawJoinedAt).toLocal() : DateTime.now(),
     );
   }
 }
@@ -112,4 +110,3 @@ class Household {
         'lastFeeding': lastFeeding?.toJson(),
       };
 }
-

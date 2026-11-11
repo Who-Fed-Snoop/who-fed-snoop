@@ -32,4 +32,3 @@ class WhoFedSnoopApp extends StatelessWidget {
     );
   }
 }
-

@@ -58,11 +58,9 @@ class InMemoryHouseholdRepository implements HouseholdRepository {
   }
 
   final Map<String, Household> _households = <String, Household>{};
-  final Map<String, List<FeedingEvent>> _feedingsByHousehold =
-      <String, List<FeedingEvent>>{};
+  final Map<String, List<FeedingEvent>> _feedingsByHousehold = <String, List<FeedingEvent>>{};
 
-  final StreamController<String> _changeController =
-      StreamController<String>.broadcast();
+  final StreamController<String> _changeController = StreamController<String>.broadcast();
 
   static const String defaultHouseholdId = 'household_snoop_01';
   static const String defaultJoinCode = 'SNOOP4';
@@ -299,11 +297,8 @@ class InMemoryHouseholdRepository implements HouseholdRepository {
   }
 
   String _generateJoinCode(String petName) {
-    final letters = petName
-        .toUpperCase()
-        .replaceAll(RegExp(r'[^A-Z]'), '')
-        .padRight(4, 'X')
-        .substring(0, 4);
+    final letters =
+        petName.toUpperCase().replaceAll(RegExp(r'[^A-Z]'), '').padRight(4, 'X').substring(0, 4);
     final digits = (Random().nextInt(90) + 10).toString();
     return '$letters$digits';
   }
@@ -312,4 +307,3 @@ class InMemoryHouseholdRepository implements HouseholdRepository {
     _changeController.close();
   }
 }
-

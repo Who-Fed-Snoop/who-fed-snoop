@@ -25,9 +25,7 @@ class MealSchedule {
     this.breakfastStartHour = 4,
     this.dinnerStartHour = 14,
   }) : assert(
-          breakfastStartHour >= 0 &&
-              breakfastStartHour < dinnerStartHour &&
-              dinnerStartHour <= 23,
+          breakfastStartHour >= 0 && breakfastStartHour < dinnerStartHour && dinnerStartHour <= 23,
           'breakfastStartHour must be earlier than dinnerStartHour (0..23)',
         );
 
@@ -161,4 +159,3 @@ class ActiveMealWindow {
   @override
   int get hashCode => Object.hash(period, windowDate, nextTransitionTime);
 }
-

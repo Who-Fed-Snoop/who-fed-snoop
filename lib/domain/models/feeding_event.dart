@@ -42,9 +42,7 @@ class FeedingEvent {
 
   factory FeedingEvent.fromJson(Map<String, Object?> json) {
     final rawFedAt = json['fedAt'];
-    final parsedFedAt = rawFedAt is String
-        ? DateTime.parse(rawFedAt).toLocal()
-        : DateTime.now();
+    final parsedFedAt = rawFedAt is String ? DateTime.parse(rawFedAt).toLocal() : DateTime.now();
 
     return FeedingEvent(
       id: (json['id'] as String?) ?? '',
@@ -80,4 +78,3 @@ class FeedingEvent {
         isExtraMeal,
       );
 }
-

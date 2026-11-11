@@ -145,4 +145,3 @@ class _OnboardingSheetState extends State<OnboardingSheet> {
     );
   }
 }
-

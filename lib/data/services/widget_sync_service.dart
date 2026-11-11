@@ -79,4 +79,3 @@ class WidgetSyncService {
     return '$hour12:$minute $suffix';
   }
 }
-

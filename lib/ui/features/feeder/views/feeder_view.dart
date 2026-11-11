@@ -19,6 +19,7 @@ class FeederView extends StatelessWidget {
   static const Key heroFeedButtonKey = Key('hero_feed_button');
   static const Key undoFeedButtonKey = Key('undo_feed_button');
   static const Key simulatePartnerButtonKey = Key('simulate_partner_button');
+  static const Key toggleHistoryButtonKey = Key('toggle_history_button');
 
   @override
   Widget build(BuildContext context) {
@@ -94,8 +95,7 @@ class FeederView extends StatelessWidget {
                   isFed: isFed,
                   activeMemberName: viewModel.currentMemberName,
                   onTapFeed: () => viewModel.markPetFed(),
-                  onTapExtraMeal: () =>
-                      viewModel.markPetFed(isExtraMeal: true),
+                  onTapExtraMeal: () => viewModel.markPetFed(isExtraMeal: true),
                 ),
                 if (viewModel.canUndo) ...<Widget>[
                   const SizedBox(height: 12),
@@ -106,9 +106,11 @@ class FeederView extends StatelessWidget {
                 ],
                 const SizedBox(height: 20),
                 _HomeWidgetPreviewCard(viewModel: viewModel),
-                const SizedBox(height: 24),
+                const SizedBox(height: 20),
                 _RecentHistorySection(
                   petName: household.petName,
+                  isExpanded: viewModel.isHistoryExpanded,
+                  onToggleExpanded: viewModel.toggleHistoryExpanded,
                   events: viewModel.history,
                 ),
               ],
@@ -127,8 +129,7 @@ class _MemberSwitcherBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isKeni =
-        viewModel.currentMemberUid == InMemoryHouseholdRepository.keniUid;
+    final isKeni = viewModel.currentMemberUid == InMemoryHouseholdRepository.keniUid;
     final partnerName = isKeni ? 'Ashley' : 'Keni';
 
     return Wrap(
@@ -377,7 +378,7 @@ class _HeroStatusAndFeedCard extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              '1 tap logs as $activeMemberName & sends push notification',
+              '1 tap logs as $activeMemberName & notifies your partner',
               textAlign: TextAlign.center,
               style: const TextStyle(fontSize: 12, color: AppTheme.inkMuted),
             ),
@@ -503,56 +504,65 @@ class _HomeWidgetPreviewCard extends StatelessWidget {
 }
 
 class _RecentHistorySection extends StatelessWidget {
-  const _RecentHistorySection({required this.petName, required this.events});
+  const _RecentHistorySection({
+    required this.petName,
+    required this.isExpanded,
+    required this.onToggleExpanded,
+    required this.events,
+  });
 
   final String petName;
+  final bool isExpanded;
+  final VoidCallback onToggleExpanded;
   final List<FeedingEvent> events;
 
   @override
   Widget build(BuildContext context) {
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        Text(
-          "$petName's 7-Day Meal Log",
-          style: const TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.w800,
-            color: AppTheme.inkDark,
+        OutlinedButton.icon(
+          key: FeederView.toggleHistoryButtonKey,
+          onPressed: onToggleExpanded,
+          icon: Icon(isExpanded ? Icons.expand_less : Icons.history),
+          label: Text(
+            isExpanded ? "Hide $petName's 7-Day Meal Log" : "Show $petName's 7-Day Meal Log",
+            style: const TextStyle(fontWeight: FontWeight.w700),
           ),
         ),
-        const SizedBox(height: 10),
-        if (events.isEmpty)
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 16),
-            child: Text('No meals logged yet.'),
-          )
-        else
-          ...events.map(
-            (event) => Card(
-              elevation: 0,
-              margin: const EdgeInsets.only(bottom: 8),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(14),
-                side: const BorderSide(color: Colors.black12),
-              ),
-              child: ListTile(
-                leading: CircleAvatar(
-                  backgroundColor: AppTheme.fedSurface,
-                  child: Text(event.mealPeriod.emoji),
+        if (isExpanded) ...<Widget>[
+          const SizedBox(height: 10),
+          if (events.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 16),
+              child: Text('No meals logged yet.'),
+            )
+          else
+            ...events.map(
+              (event) => Card(
+                elevation: 0,
+                margin: const EdgeInsets.only(bottom: 8),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  side: const BorderSide(color: Colors.black12),
                 ),
-                title: Text(
-                  '${event.fedByName} fed $petName ${event.mealPeriod.label}${event.isExtraMeal ? " (Bonus)" : ""}',
-                  style: const TextStyle(fontWeight: FontWeight.w700),
-                ),
-                subtitle: Text(
-                  '${event.windowDate} • ${FeederViewModel.formatTimeOfDay(event.fedAt)}',
+                child: ListTile(
+                  leading: CircleAvatar(
+                    backgroundColor: AppTheme.fedSurface,
+                    child: Text(event.mealPeriod.emoji),
+                  ),
+                  title: Text(
+                    '${event.fedByName} fed $petName ${event.mealPeriod.label}${event.isExtraMeal ? " (Bonus)" : ""}',
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  subtitle: Text(
+                    '${event.windowDate} • ${FeederViewModel.formatTimeOfDay(event.fedAt)}',
+                  ),
                 ),
               ),
             ),
-          ),
+        ],
       ],
     );
   }
 }
-

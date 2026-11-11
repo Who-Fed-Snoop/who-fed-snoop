@@ -10,6 +10,11 @@ import '../../../../domain/models/meal_window.dart';
 
 /// ViewModel managing the 1-tap feeding screen, 10-second Undo timer,
 /// partner notification banner, and Android widget state synchronization.
+///
+/// Cost-Control Design:
+/// - Streams ONLY the single `households/{id}` document by default (1 read per state change).
+/// - Lazily subscribes to the 7-day `feedings` subcollection only when the user expands
+///   the history section, cutting Firestore read volume by >90%.
 class FeederViewModel extends ChangeNotifier {
   FeederViewModel({
     required HouseholdRepository repository,
@@ -41,18 +46,21 @@ class FeederViewModel extends ChangeNotifier {
 
   Household? _household;
   List<FeedingEvent> _history = const <FeedingEvent>[];
+  bool _isHistoryExpanded = false;
   bool _isLoading = true;
   String? _errorMessage;
+  String? _lastSeenFeedingId;
 
   /// Non-null during the 10-second Undo window right after the current user taps Feed.
   String? _undoableFeedingId;
   int _undoSecondsRemaining = 0;
 
-  /// Simulated push notification banner when the partner logs a meal.
+  /// Push/realtime notification banner when the partner logs a meal.
   String? _partnerNotificationBanner;
 
   Household? get household => _household;
   List<FeedingEvent> get history => _history;
+  bool get isHistoryExpanded => _isHistoryExpanded;
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
   String get currentMemberUid => _currentMemberUid;
@@ -76,6 +84,7 @@ class FeederViewModel extends ChangeNotifier {
   void _subscribeToHousehold(String householdId) {
     _isLoading = true;
     _errorMessage = null;
+    _lastSeenFeedingId = null;
     notifyListeners();
 
     _householdSub?.cancel();
@@ -83,8 +92,23 @@ class FeederViewModel extends ChangeNotifier {
 
     _householdSub = _repository.watchHousehold(householdId).listen(
       (updatedHousehold) {
+        final previousFeedingId = _lastSeenFeedingId;
+        final latestFeeding = updatedHousehold?.lastFeeding;
+
+        // Detect when a partner logs a meal in real time from the single-doc stream!
+        if (previousFeedingId != null &&
+            latestFeeding != null &&
+            latestFeeding.id != previousFeedingId &&
+            latestFeeding.fedByUid != _currentMemberUid) {
+          final timeStr = formatTimeOfDay(latestFeeding.fedAt);
+          _partnerNotificationBanner =
+              '🐾 ${latestFeeding.fedByName} fed ${updatedHousehold!.petName} ${latestFeeding.mealPeriod.label} at $timeStr';
+        }
+
+        _lastSeenFeedingId = latestFeeding?.id ?? '';
         _household = updatedHousehold;
         _isLoading = false;
+
         if (updatedHousehold != null) {
           _widgetSyncService.syncHouseholdState(
             household: updatedHousehold,
@@ -101,12 +125,30 @@ class FeederViewModel extends ChangeNotifier {
       },
     );
 
-    _historySub = _repository.watchRecentFeedings(householdId).listen(
-      (events) {
-        _history = events;
-        notifyListeners();
-      },
-    );
+    if (_isHistoryExpanded) {
+      _subscribeToHistory(householdId);
+    }
+  }
+
+  void _subscribeToHistory(String householdId) {
+    _historySub?.cancel();
+    _historySub = _repository.watchRecentFeedings(householdId).listen((events) {
+      _history = events;
+      notifyListeners();
+    });
+  }
+
+  /// Lazily toggles the 7-day history stream so daily 2-second glances only read
+  /// 1 Firestore document (`households/{id}`).
+  void toggleHistoryExpanded() {
+    _isHistoryExpanded = !_isHistoryExpanded;
+    if (_isHistoryExpanded) {
+      _subscribeToHistory(_householdId);
+    } else {
+      _historySub?.cancel();
+      _historySub = null;
+    }
+    notifyListeners();
   }
 
   /// Primary 1-tap action: logs the current meal window for the active member.
@@ -132,28 +174,22 @@ class FeederViewModel extends ChangeNotifier {
   }
 
   /// Simulates the partner (e.g. Ashley when Keni is active) logging the meal
-  /// from their Android phone and triggering an FCM push notification.
+  /// from their Android phone.
   Future<void> simulatePartnerFeed() async {
     final currentHousehold = _household;
     if (currentHousehold == null) return;
 
     final isKeniActive = _currentMemberUid == InMemoryHouseholdRepository.keniUid;
-    final partnerUid = isKeniActive
-        ? InMemoryHouseholdRepository.ashleyUid
-        : InMemoryHouseholdRepository.keniUid;
+    final partnerUid =
+        isKeniActive ? InMemoryHouseholdRepository.ashleyUid : InMemoryHouseholdRepository.keniUid;
     final partnerName = isKeniActive ? 'Ashley' : 'Keni';
 
-    final event = await _repository.logFeeding(
+    await _repository.logFeeding(
       householdId: currentHousehold.id,
       fedByUid: partnerUid,
       fedByName: partnerName,
       now: _clock(),
     );
-
-    final timeStr = formatTimeOfDay(event.fedAt);
-    _partnerNotificationBanner =
-        '🐾 Push Notification: $partnerName fed ${currentHousehold.petName} ${event.mealPeriod.label} at $timeStr';
-    notifyListeners();
   }
 
   void dismissPartnerBanner() {
@@ -222,8 +258,7 @@ class FeederViewModel extends ChangeNotifier {
       memberName: memberName,
     );
     _currentMemberUid = newUid;
-    _currentMemberName =
-        memberName.trim().isEmpty ? 'Ashley' : memberName.trim();
+    _currentMemberName = memberName.trim().isEmpty ? 'Ashley' : memberName.trim();
     _householdId = joined.id;
     _cancelUndoTimer();
     _subscribeToHousehold(joined.id);
@@ -269,4 +304,3 @@ class FeederViewModel extends ChangeNotifier {
     super.dispose();
   }
 }
-
