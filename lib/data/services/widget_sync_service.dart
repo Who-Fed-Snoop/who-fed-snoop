@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
@@ -14,19 +16,52 @@ class HomeWidgetSnapshot {
     required this.isFed,
     required this.mealPeriod,
     required this.updatedAt,
-  });
+    String? windowLabel,
+    String? windowEmoji,
+    this.nextTransitionTime,
+    this.nextWindowLabel,
+    this.nextWindowEmoji,
+    this.todayTreatCount = 0,
+    this.dailyTreatLimit = 4,
+  })  : windowLabel = windowLabel ??
+            (mealPeriod == MealPeriod.breakfast
+                ? 'Breakfast'
+                : mealPeriod == MealPeriod.lunch
+                    ? 'Lunch'
+                    : mealPeriod == MealPeriod.dinner
+                        ? 'Dinner'
+                        : mealPeriod == MealPeriod.lateSnack
+                            ? 'Late Snack'
+                            : 'Meal'),
+        windowEmoji = windowEmoji ??
+            (mealPeriod == MealPeriod.breakfast
+                ? '🥣'
+                : mealPeriod == MealPeriod.lunch
+                    ? '🍲'
+                    : mealPeriod == MealPeriod.dinner
+                        ? '🍖'
+                        : mealPeriod == MealPeriod.lateSnack
+                            ? '🌙'
+                            : '🐾');
 
   final String petName;
   final String headline;
   final String subheadline;
   final bool isFed;
   final MealPeriod mealPeriod;
+  final String windowLabel;
+  final String windowEmoji;
+  final DateTime? nextTransitionTime;
+  final String? nextWindowLabel;
+  final String? nextWindowEmoji;
+  final int todayTreatCount;
+  final int dailyTreatLimit;
   final DateTime updatedAt;
 }
 
 /// Keeps the Android Home Screen Widget (`WhoFedSnoopWidgetProvider`) synchronized
-/// whenever a meal is logged or the meal window transitions, and bridges native
-/// Android App Links / NFC / Widget tap intents.
+/// whenever a meal is logged, a treat is tracked, or the meal window transitions,
+/// and bridges native Android App Links / NFC / Widget tap intents.
 class WidgetSyncService {
   static const MethodChannel _platformChannel = MethodChannel(
     'com.whofedsnoop.who_fed_snoop/platform',
@@ -36,47 +71,77 @@ class WidgetSyncService {
 
   HomeWidgetSnapshot? get latestSnapshot => _latestSnapshot;
 
+  /// Extracts a deep-link [Uri] from [base], supporting both standard path routing
+  /// (`/join/SNOOP4`) and Flutter Web hash routing (`/#/join/SNOOP4` or `#join/SNOOP4`).
+  @visibleForTesting
+  static Uri? extractWebInitialUri(Uri base) {
+    if (base.pathSegments.where((s) => s.isNotEmpty).length >= 2) {
+      return base;
+    }
+
+    final fragment = base.fragment.trim();
+    if (fragment.isNotEmpty) {
+      final normalizedPath = fragment.startsWith('/') ? fragment : '/$fragment';
+      final parsedFragment = Uri.tryParse(normalizedPath);
+      if (parsedFragment != null &&
+          parsedFragment.pathSegments.where((s) => s.isNotEmpty).length >= 2) {
+        return Uri(
+          scheme: base.scheme.isEmpty ? null : base.scheme,
+          userInfo: base.userInfo.isEmpty ? null : base.userInfo,
+          host: base.host.isEmpty ? null : base.host,
+          port: base.hasPort ? base.port : null,
+          path: parsedFragment.path,
+          query: parsedFragment.hasQuery ? parsedFragment.query : null,
+        );
+      }
+    }
+
+    return null;
+  }
+
   /// Registers a listener for deep-link / NFC / Widget button taps delivered
   /// while the Android activity is running (`onNewIntent`) and returns any
   /// initial launch deep link.
   Future<Uri?> initDeepLinkBridge({
-    required void Function(Uri uri) onDeepLinkReceived,
+    required FutureOr<void> Function(Uri uri) onDeepLinkReceived,
   }) async {
     if (kIsWeb) {
-      final base = Uri.base;
-      if (base.pathSegments.length >= 2) {
-        return base;
-      }
-      return null;
+      return extractWebInitialUri(Uri.base);
     }
 
     if (defaultTargetPlatform != TargetPlatform.android) {
       return null;
     }
 
-    _platformChannel.setMethodCallHandler((MethodCall call) async {
-      if (call.method == 'onDeepLink') {
-        final raw = call.arguments as String?;
-        if (raw != null && raw.isNotEmpty) {
-          final parsed = Uri.tryParse(raw);
-          if (parsed != null) {
-            onDeepLinkReceived(parsed);
+    try {
+      _platformChannel.setMethodCallHandler((MethodCall call) async {
+        if (call.method == 'onDeepLink') {
+          final raw = call.arguments as String?;
+          if (raw != null && raw.isNotEmpty) {
+            final parsed = Uri.tryParse(raw);
+            if (parsed != null) {
+              final resolved = extractWebInitialUri(parsed) ?? parsed;
+              await onDeepLinkReceived(resolved);
+            }
           }
         }
-      }
-    });
+      });
 
-    try {
       final rawInitial = await _platformChannel.invokeMethod<String>(
         'getInitialDeepLink',
       );
       if (rawInitial != null && rawInitial.isNotEmpty) {
-        return Uri.tryParse(rawInitial);
+        final parsed = Uri.tryParse(rawInitial);
+        if (parsed != null) {
+          return extractWebInitialUri(parsed) ?? parsed;
+        }
       }
     } on MissingPluginException {
       // Safe no-op during widget tests
     } on PlatformException {
       // Safe no-op if platform channel fails
+    } on FlutterError {
+      // Safe no-op in pure Dart unit tests without ServicesBinding initialized
     }
     return null;
   }
@@ -89,23 +154,25 @@ class WidgetSyncService {
     final currentFeeding = household.feedingForWindow(activeWindow);
     final isFed = currentFeeding != null;
 
+    final todayTreatCount = household.treatCountForDate(activeWindow.windowDate);
+    final treatSuffix =
+        todayTreatCount > 0 ? ' • 🦴 $todayTreatCount/${household.dailyTreatLimit} treats' : '';
+
     final String headline;
     final String subheadline;
 
     if (currentFeeding != null) {
       final formattedTime = _formatClockTime(currentFeeding.fedAt);
-      headline =
-          '✅ ${currentFeeding.fedByName} fed ${household.petName} ${activeWindow.period.label}';
-      subheadline = 'Logged at $formattedTime';
+      headline = '✅ ${currentFeeding.fedByName} fed ${household.petName} ${activeWindow.label}';
+      subheadline = 'Logged at $formattedTime$treatSuffix';
     } else {
-      headline =
-          '${activeWindow.period.emoji} ${household.petName} needs ${activeWindow.period.label}';
+      headline = '${activeWindow.emoji} ${household.petName} needs ${activeWindow.label}';
       final last = household.lastFeeding;
       if (last != null) {
         subheadline =
-            'Last fed: ${last.mealPeriod.label} by ${last.fedByName} (${_formatClockTime(last.fedAt)})';
+            'Last fed: ${last.effectiveLabel} by ${last.fedByName} (${_formatClockTime(last.fedAt)})$treatSuffix';
       } else {
-        subheadline = 'Tap to log ${activeWindow.period.label.toLowerCase()}';
+        subheadline = 'Tap to log ${activeWindow.label.toLowerCase()}$treatSuffix';
       }
     }
 
@@ -115,6 +182,13 @@ class WidgetSyncService {
       subheadline: subheadline,
       isFed: isFed,
       mealPeriod: activeWindow.period,
+      windowLabel: activeWindow.label,
+      windowEmoji: activeWindow.emoji,
+      nextTransitionTime: activeWindow.nextTransitionTime,
+      nextWindowLabel: activeWindow.nextWindowLabel,
+      nextWindowEmoji: activeWindow.nextWindowEmoji,
+      todayTreatCount: todayTreatCount,
+      dailyTreatLimit: household.dailyTreatLimit,
       updatedAt: now,
     );
 
@@ -130,7 +204,11 @@ class WidgetSyncService {
             'headline': snapshot.headline,
             'subheadline': snapshot.subheadline,
             'isFed': snapshot.isFed,
-            'mealPeriod': snapshot.mealPeriod.name,
+            'mealPeriod': activeWindow.label,
+            'windowEmoji': activeWindow.emoji,
+            'nextTransitionEpochMs': activeWindow.nextTransitionTime.millisecondsSinceEpoch,
+            'nextWindowLabel': activeWindow.nextWindowLabel,
+            'nextWindowEmoji': activeWindow.nextWindowEmoji,
             'householdId': household.id,
           },
         );
@@ -138,6 +216,8 @@ class WidgetSyncService {
         // Ignored in unit/widget test environments.
       } on PlatformException {
         // Ignored if launcher widget service is unavailable.
+      } on FlutterError {
+        // Ignored in pure Dart unit tests where ServicesBinding is uninitialized.
       }
     }
 
