@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -72,17 +74,53 @@ Future<void> main() async {
   final initialUri = await widgetSyncService.initDeepLinkBridge(
     onDeepLinkReceived: viewModel.handleIncomingUri,
   );
-  if (initialUri != null) {
-    await viewModel.handleIncomingUri(initialUri);
-  }
 
   runApp(WhoFedSnoopApp(viewModel: viewModel));
+
+  if (initialUri != null) {
+    unawaited(viewModel.handleIncomingUri(initialUri));
+  }
 }
 
-class WhoFedSnoopApp extends StatelessWidget {
+class WhoFedSnoopApp extends StatefulWidget {
   const WhoFedSnoopApp({super.key, required this.viewModel});
 
   final FeederViewModel viewModel;
+
+  @override
+  State<WhoFedSnoopApp> createState() => _WhoFedSnoopAppState();
+}
+
+class _WhoFedSnoopAppState extends State<WhoFedSnoopApp> with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    widget.viewModel.ensureWindowTransitionTimer();
+  }
+
+  @override
+  void didUpdateWidget(covariant WhoFedSnoopApp oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.viewModel != widget.viewModel) {
+      oldWidget.viewModel.cancelWindowTransitionTimer();
+      widget.viewModel.ensureWindowTransitionTimer();
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    widget.viewModel.cancelWindowTransitionTimer();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      widget.viewModel.refreshForClockChange();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -90,7 +128,7 @@ class WhoFedSnoopApp extends StatelessWidget {
       title: 'Who Fed Snoop?',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
-      home: FeederView(viewModel: viewModel),
+      home: FeederView(viewModel: widget.viewModel),
     );
   }
 }
