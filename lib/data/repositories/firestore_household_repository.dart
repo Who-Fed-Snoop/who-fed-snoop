@@ -1,12 +1,13 @@
-import 'dart:math';
-
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import '../../domain/models/active_meal_window.dart';
 import '../../domain/models/feeding_event.dart';
 import '../../domain/models/household.dart';
-import '../../domain/models/meal_window.dart';
+import '../../domain/models/meal_schedule.dart';
 import '../../domain/models/treat_event.dart';
+import 'firestore_household_mapper.dart';
 import 'household_repository.dart';
+import 'household_state_policy.dart';
 
 /// Production Cloud Firestore implementation of [HouseholdRepository] designed
 /// around strict cost guardrails and the deployed `firestore.rules` schema:
@@ -31,47 +32,38 @@ class FirestoreHouseholdRepository implements HouseholdRepository {
     required String memberUid,
     String? memberName,
   }) async {
-    final docRef = _householdsRef.doc(
-      InMemoryHouseholdRepository.defaultHouseholdId,
-    );
+    final docRef = _householdsRef.doc(HouseholdStatePolicy.defaultHouseholdId);
     final snap = await docRef.get();
     final now = DateTime.now();
-    final trimmedName = memberName?.trim() ?? '';
-    final hasBoundName = trimmedName.isNotEmpty;
+    final boundMemberName = HouseholdStatePolicy.resolveBoundMemberName(memberName);
 
     if (!snap.exists || snap.data() == null) {
-      final cleanMember = _truncate(hasBoundName ? trimmedName : 'Keni', 50);
-      await docRef.set(<String, Object?>{
-        'joinCode': InMemoryHouseholdRepository.defaultJoinCode,
-        'petName': 'Snoop',
-        'isPro': false,
-        'createdAt': Timestamp.fromDate(now),
-        'schedule': const MealSchedule().toJson(),
-        'members': <String, Object?>{
-          memberUid: <String, Object?>{
-            'name': cleanMember,
-            'fcmToken': null,
-            'joinedAt': Timestamp.fromDate(now),
-          },
-        },
-        'lastFeeding': null,
-        'dailyTreatLimit': 4,
-        'todayMeals': <String, Object?>{},
-        'todayTreats': <Object?>[],
-      });
+      final creator = HouseholdMember(
+        uid: memberUid,
+        name: boundMemberName ?? 'Keni',
+        joinedAt: now,
+      );
+      await docRef.set(
+        FirestoreHouseholdMapper.newHouseholdPayload(
+          joinCode: HouseholdStatePolicy.defaultJoinCode,
+          petName: HouseholdStatePolicy.defaultPetName,
+          createdAt: now,
+          schedule: const MealSchedule(),
+          creator: creator,
+        ),
+      );
       return;
     }
 
     final data = snap.data()!;
-    final members = data['members'];
-    if (hasBoundName && members is Map && !members.containsKey(memberUid)) {
-      final cleanMember = _truncate(trimmedName, 50);
+    if (HouseholdStatePolicy.shouldRegisterMemberOnColdStart(
+      rawMembers: data['members'],
+      memberUid: memberUid,
+      boundMemberName: boundMemberName,
+    )) {
+      final member = HouseholdMember(uid: memberUid, name: boundMemberName!, joinedAt: now);
       await docRef.update(<String, Object?>{
-        'members.$memberUid': <String, Object?>{
-          'name': cleanMember,
-          'fcmToken': null,
-          'joinedAt': Timestamp.fromDate(now),
-        },
+        'members.$memberUid': FirestoreHouseholdMapper.memberToFirestoreMap(member),
       });
     }
   }
@@ -79,18 +71,13 @@ class FirestoreHouseholdRepository implements HouseholdRepository {
   @override
   Stream<Household?> watchHousehold(String householdId) {
     return _householdsRef.doc(householdId).snapshots().map((snapshot) {
-      if (!snapshot.exists || snapshot.data() == null) {
-        return null;
-      }
-      return _householdFromFirestore(snapshot.id, snapshot.data()!);
+      if (!snapshot.exists || snapshot.data() == null) return null;
+      return FirestoreHouseholdMapper.householdFromFirestore(snapshot.id, snapshot.data()!);
     });
   }
 
   @override
-  Stream<List<FeedingEvent>> watchRecentFeedings(
-    String householdId, {
-    int limit = 50,
-  }) {
+  Stream<List<FeedingEvent>> watchRecentFeedings(String householdId, {int limit = 50}) {
     return _householdsRef
         .doc(householdId)
         .collection('feedings')
@@ -98,17 +85,16 @@ class FirestoreHouseholdRepository implements HouseholdRepository {
         .limit(limit)
         .snapshots()
         .map((query) {
-      final events = query.docs.map((doc) => _feedingFromFirestore(doc.id, doc.data())).toList();
-      events.sort((a, b) => b.fedAt.compareTo(a.fedAt));
+      final events = query.docs
+          .map((doc) => FirestoreHouseholdMapper.feedingFromFirestore(doc.id, doc.data()))
+          .toList()
+        ..sort((a, b) => b.fedAt.compareTo(a.fedAt));
       return events;
     });
   }
 
   @override
-  Stream<List<TreatEvent>> watchRecentTreats(
-    String householdId, {
-    int limit = 50,
-  }) {
+  Stream<List<TreatEvent>> watchRecentTreats(String householdId, {int limit = 50}) {
     return _householdsRef
         .doc(householdId)
         .collection('treats')
@@ -116,9 +102,10 @@ class FirestoreHouseholdRepository implements HouseholdRepository {
         .limit(limit)
         .snapshots()
         .map((query) {
-      final treats =
-          query.docs.map((doc) => TreatEvent.fromJson(doc.data(), fallbackId: doc.id)).toList();
-      treats.sort((a, b) => b.givenAt.compareTo(a.givenAt));
+      final treats = query.docs
+          .map((doc) => TreatEvent.fromJson(doc.data(), fallbackId: doc.id))
+          .toList()
+        ..sort((a, b) => b.givenAt.compareTo(a.givenAt));
       return treats;
     });
   }
@@ -130,44 +117,28 @@ class FirestoreHouseholdRepository implements HouseholdRepository {
     required String petName,
   }) async {
     final now = DateTime.now();
-    final cleanPet = _truncate(
-      petName.trim().isEmpty ? 'Snoop' : petName.trim(),
-      40,
+    final cleanPet = HouseholdStatePolicy.sanitizeName(
+      petName,
+      fallback: HouseholdStatePolicy.defaultPetName,
+      maxLength: 40,
     );
-    final cleanMember = _truncate(
-      memberName.trim().isEmpty ? 'Keni' : memberName.trim(),
-      50,
-    );
-    final joinCode = _generateJoinCode(cleanPet);
+    final cleanMember =
+        HouseholdStatePolicy.sanitizeName(memberName, fallback: 'Keni', maxLength: 50);
+    final joinCode = HouseholdStatePolicy.generateJoinCode(cleanPet);
 
     final docRef = _householdsRef.doc();
     const schedule = MealSchedule();
-    final member = HouseholdMember(
-      uid: memberUid,
-      name: cleanMember,
-      joinedAt: now,
+    final member = HouseholdMember(uid: memberUid, name: cleanMember, joinedAt: now);
+
+    await docRef.set(
+      FirestoreHouseholdMapper.newHouseholdPayload(
+        joinCode: joinCode,
+        petName: cleanPet,
+        createdAt: now,
+        schedule: schedule,
+        creator: member,
+      ),
     );
-
-    final payload = <String, Object?>{
-      'joinCode': joinCode,
-      'petName': cleanPet,
-      'isPro': false, // Required by firestore.rules on client creation
-      'createdAt': Timestamp.fromDate(now),
-      'schedule': schedule.toJson(),
-      'members': <String, Object?>{
-        memberUid: <String, Object?>{
-          'name': member.name,
-          'fcmToken': member.fcmToken,
-          'joinedAt': Timestamp.fromDate(member.joinedAt),
-        },
-      },
-      'lastFeeding': null,
-      'dailyTreatLimit': 4,
-      'todayMeals': <String, Object?>{},
-      'todayTreats': <Object?>[],
-    };
-
-    await docRef.set(payload);
 
     return Household(
       id: docRef.id,
@@ -187,39 +158,28 @@ class FirestoreHouseholdRepository implements HouseholdRepository {
   }) async {
     final normalizedCode = joinCode.trim().toUpperCase();
     final query = await _householdsRef.where('joinCode', isEqualTo: normalizedCode).limit(1).get();
-
     if (query.docs.isEmpty) {
       throw StateError('No household found with code "$normalizedCode".');
     }
 
     final doc = query.docs.first;
-    final existing = _householdFromFirestore(doc.id, doc.data());
-    final cleanName = _truncate(
-      memberName.trim().isEmpty ? 'Ashley' : memberName.trim(),
-      50,
-    );
-    final now = DateTime.now();
-
-    final existingMember = existing.members[memberUid];
+    final existing = FirestoreHouseholdMapper.householdFromFirestore(doc.id, doc.data());
+    final cleanName =
+        HouseholdStatePolicy.sanitizeName(memberName, fallback: 'Ashley', maxLength: 50);
     final newMember = HouseholdMember(
       uid: memberUid,
       name: cleanName,
-      fcmToken: existingMember?.fcmToken,
-      joinedAt: now,
+      fcmToken: existing.members[memberUid]?.fcmToken,
+      joinedAt: DateTime.now(),
     );
 
     // Update only `members.<uid>` to satisfy `isValidMemberJoinUpdate` in firestore.rules.
     await doc.reference.update(<String, Object?>{
-      'members.$memberUid': <String, Object?>{
-        'name': newMember.name,
-        'fcmToken': newMember.fcmToken,
-        'joinedAt': Timestamp.fromDate(now),
-      },
+      'members.$memberUid': FirestoreHouseholdMapper.memberToFirestoreMap(newMember),
     });
 
     final updatedMembers = Map<String, HouseholdMember>.of(existing.members)
       ..[memberUid] = newMember;
-
     return existing.copyWith(members: updatedMembers);
   }
 
@@ -235,44 +195,23 @@ class FirestoreHouseholdRepository implements HouseholdRepository {
       throw StateError('Household $householdId not found.');
     }
 
-    final existing = _householdFromFirestore(snap.id, snap.data()!);
-    final trimmed = memberName.trim();
-    final cleanName = _truncate(trimmed.isEmpty ? 'Member' : trimmed, 50);
-    final existingMember = existing.members[memberUid];
-
-    if (existingMember != null) {
-      if (existingMember.name == cleanName) {
-        return existing;
-      }
-      await docRef.update(<String, Object?>{
-        'members.$memberUid.name': cleanName,
-      });
-      final updatedMembers = Map<String, HouseholdMember>.of(existing.members)
-        ..[memberUid] = HouseholdMember(
-          uid: memberUid,
-          name: cleanName,
-          fcmToken: existingMember.fcmToken,
-          joinedAt: existingMember.joinedAt,
-        );
-      return existing.copyWith(members: updatedMembers);
-    }
-
-    final now = DateTime.now();
-    final newMember = HouseholdMember(
-      uid: memberUid,
-      name: cleanName,
-      joinedAt: now,
+    final existing = FirestoreHouseholdMapper.householdFromFirestore(snap.id, snap.data()!);
+    final result = HouseholdStatePolicy.applyMemberNameUpdate(
+      existing,
+      memberUid: memberUid,
+      memberName: memberName,
+      now: DateTime.now(),
     );
-    await docRef.update(<String, Object?>{
-      'members.$memberUid': <String, Object?>{
-        'name': newMember.name,
-        'fcmToken': null,
-        'joinedAt': Timestamp.fromDate(now),
-      },
-    });
-    final updatedMembers = Map<String, HouseholdMember>.of(existing.members)
-      ..[memberUid] = newMember;
-    return existing.copyWith(members: updatedMembers);
+    if (!result.changed) return existing;
+
+    await docRef.update(
+      result.isNewMember
+          ? <String, Object?>{
+              'members.$memberUid': FirestoreHouseholdMapper.memberToFirestoreMap(result.member),
+            }
+          : <String, Object?>{'members.$memberUid.name': result.member.name},
+    );
+    return result.household;
   }
 
   @override
@@ -283,25 +222,11 @@ class FirestoreHouseholdRepository implements HouseholdRepository {
     int? dailyTreatLimit,
     String? petName,
   }) async {
-    if (schedule != null) {
-      final validationError = schedule.validate();
-      if (validationError != null) {
-        throw ArgumentError(validationError);
-      }
-    }
-
-    if (dailyTreatLimit != null && (dailyTreatLimit < 1 || dailyTreatLimit > 50)) {
-      throw ArgumentError('Daily treat limit must be between 1 and 50.');
-    }
-
-    String? cleanPetName;
-    if (petName != null) {
-      final trimmed = petName.trim();
-      if (trimmed.isEmpty || trimmed.length > 40) {
-        throw ArgumentError('Pet name must be between 1 and 40 characters.');
-      }
-      cleanPetName = trimmed;
-    }
+    final cleanPetName = HouseholdStatePolicy.validateSettingsInputs(
+      schedule: schedule,
+      dailyTreatLimit: dailyTreatLimit,
+      petName: petName,
+    );
 
     final householdDocRef = _householdsRef.doc(householdId);
     return _firestore.runTransaction<Household>((transaction) async {
@@ -310,25 +235,17 @@ class FirestoreHouseholdRepository implements HouseholdRepository {
         throw StateError('Household $householdId not found.');
       }
 
-      final existing = _householdFromFirestore(snap.id, snap.data()!);
+      final existing = FirestoreHouseholdMapper.householdFromFirestore(snap.id, snap.data()!);
       if (!existing.members.containsKey(requestingUid)) {
         throw StateError('Only household members can update settings.');
       }
 
-      final updates = <String, Object?>{};
-      if (schedule != null) {
-        updates['schedule'] = schedule.toJson();
-      }
-      if (dailyTreatLimit != null) {
-        updates['dailyTreatLimit'] = dailyTreatLimit;
-      }
-      if (cleanPetName != null) {
-        updates['petName'] = cleanPetName;
-      }
-
-      if (updates.isNotEmpty) {
-        transaction.update(householdDocRef, updates);
-      }
+      final updates = <String, Object?>{
+        if (schedule != null) 'schedule': schedule.toJson(),
+        if (dailyTreatLimit != null) 'dailyTreatLimit': dailyTreatLimit,
+        if (cleanPetName != null) 'petName': cleanPetName,
+      };
+      if (updates.isNotEmpty) transaction.update(householdDocRef, updates);
 
       return existing.copyWith(
         schedule: schedule,
@@ -347,18 +264,13 @@ class FirestoreHouseholdRepository implements HouseholdRepository {
     bool isExtraMeal = false,
   }) async {
     final householdDocRef = _householdsRef.doc(householdId);
-    final cleanFedByName = _truncate(
-      fedByName.trim().isEmpty ? 'Someone' : fedByName.trim(),
-      50,
-    );
-
     return _firestore.runTransaction<FeedingEvent>((transaction) async {
       final householdSnap = await transaction.get(householdDocRef);
       if (!householdSnap.exists || householdSnap.data() == null) {
         throw StateError('Household $householdId not found.');
       }
 
-      final household = _householdFromFirestore(
+      final household = FirestoreHouseholdMapper.householdFromFirestore(
         householdSnap.id,
         householdSnap.data()!,
       );
@@ -369,52 +281,33 @@ class FirestoreHouseholdRepository implements HouseholdRepository {
             householdDocRef.collection('feedings').doc(window.deterministicId);
         final existingFeedingSnap = await transaction.get(deterministicDocRef);
         if (existingFeedingSnap.exists && existingFeedingSnap.data() != null) {
-          return _feedingFromFirestore(
+          return FirestoreHouseholdMapper.feedingFromFirestore(
             existingFeedingSnap.id,
             existingFeedingSnap.data()!,
           );
         }
-
         final cached = household.feedingForWindow(window);
-        if (cached != null) {
-          return cached;
-        }
+        if (cached != null) return cached;
       }
 
-      final eventId = isExtraMeal
-          ? '${window.deterministicId}_extra_${now.millisecondsSinceEpoch}_${InMemoryHouseholdRepository.nextUniqueSuffix()}'
-          : window.deterministicId;
-
-      final newEvent = FeedingEvent(
-        id: eventId,
-        mealPeriod: window.period,
-        windowId: window.windowId,
-        windowLabel: window.label,
-        windowEmoji: window.emoji,
-        windowDate: window.windowDate,
+      final newEvent = HouseholdStatePolicy.buildFeedingEvent(
+        window: window,
         fedByUid: fedByUid,
-        fedByName: cleanFedByName,
-        fedAt: now,
+        fedByName: fedByName,
+        now: now,
         isExtraMeal: isExtraMeal,
       );
 
-      final feedingDocRef = householdDocRef.collection('feedings').doc(eventId);
       final updatedTodayMeals = Map<String, FeedingEvent>.of(household.todayMeals);
-      if (!isExtraMeal) {
-        updatedTodayMeals[newEvent.id] = newEvent;
-      }
-      final prunedTodayMeals = InMemoryHouseholdRepository.pruneTodayMeals(
-        updatedTodayMeals,
-        now,
-      );
+      if (!isExtraMeal) updatedTodayMeals[newEvent.id] = newEvent;
+      final prunedTodayMeals = HouseholdStatePolicy.pruneTodayMeals(updatedTodayMeals, now);
 
-      final eventPayload = _feedingToFirestoreMap(newEvent);
-      transaction.set(feedingDocRef, eventPayload);
+      final eventPayload = FirestoreHouseholdMapper.feedingToFirestoreMap(newEvent);
+      transaction.set(householdDocRef.collection('feedings').doc(newEvent.id), eventPayload);
       transaction.update(householdDocRef, <String, Object?>{
         'lastFeeding': eventPayload,
-        'todayMeals': _todayMealsToFirestoreMap(prunedTodayMeals),
+        'todayMeals': FirestoreHouseholdMapper.todayMealsToFirestoreMap(prunedTodayMeals),
       });
-
       return newEvent;
     });
   }
@@ -429,11 +322,9 @@ class FirestoreHouseholdRepository implements HouseholdRepository {
     final feedingDocRef = householdDocRef.collection('feedings').doc(feedingId);
 
     final householdSnap = await householdDocRef.get();
-    if (!householdSnap.exists || householdSnap.data() == null) {
-      return;
-    }
+    if (!householdSnap.exists || householdSnap.data() == null) return;
 
-    final household = _householdFromFirestore(
+    final household = FirestoreHouseholdMapper.householdFromFirestore(
       householdSnap.id,
       householdSnap.data()!,
     );
@@ -448,27 +339,33 @@ class FirestoreHouseholdRepository implements HouseholdRepository {
         .get();
 
     final updatedTodayMeals = Map<String, FeedingEvent>.of(household.todayMeals)..remove(feedingId);
-
     final verifiedSubcollectionMeals = <FeedingEvent>[
       for (final doc in recentSnap.docs)
-        if (doc.id != feedingId) _feedingFromFirestore(doc.id, doc.data()),
-    ]..sort((a, b) => b.fedAt.compareTo(a.fedAt));
+        if (doc.id != feedingId) FirestoreHouseholdMapper.feedingFromFirestore(doc.id, doc.data()),
+    ];
 
-    final sortedCandidates = verifiedSubcollectionMeals.isNotEmpty
-        ? verifiedSubcollectionMeals
-        : (updatedTodayMeals.values.toList()..sort((a, b) => b.fedAt.compareTo(a.fedAt)));
-
+    final sortedCandidates = HouseholdStatePolicy.rankPreviousFeedingCandidates(
+      updatedTodayMeals: updatedTodayMeals,
+      historyMeals: verifiedSubcollectionMeals,
+      preferHistoryWhenPresent: true,
+    );
     final previousLatest = sortedCandidates.isNotEmpty ? sortedCandidates.first : null;
-    final todayMealsPayload = _todayMealsToFirestoreMap(updatedTodayMeals);
+    final todayMealsPayload = FirestoreHouseholdMapper.todayMealsToFirestoreMap(updatedTodayMeals);
+
+    Future<void> commitUndo(FeedingEvent? restoredLastFeeding) {
+      final batch = _firestore.batch()
+        ..delete(feedingDocRef)
+        ..update(householdDocRef, <String, Object?>{
+          'lastFeeding': restoredLastFeeding != null
+              ? FirestoreHouseholdMapper.feedingToFirestoreMap(restoredLastFeeding)
+              : null,
+          'todayMeals': todayMealsPayload,
+        });
+      return batch.commit();
+    }
 
     try {
-      final batch = _firestore.batch();
-      batch.delete(feedingDocRef);
-      batch.update(householdDocRef, <String, Object?>{
-        'lastFeeding': previousLatest != null ? _feedingToFirestoreMap(previousLatest) : null,
-        'todayMeals': todayMealsPayload,
-      });
-      await batch.commit();
+      await commitUndo(previousLatest);
     } on FirebaseException catch (e) {
       if (e.code != 'permission-denied' ||
           previousLatest == null ||
@@ -477,14 +374,7 @@ class FirestoreHouseholdRepository implements HouseholdRepository {
       }
       // Fallback if security rules enforce `lastFeeding.fedByUid == request.auth.uid`:
       // keep `todayMeals` intact while restoring `lastFeeding` to caller's latest meal or null.
-      final ownPrevious = sortedCandidates.where((m) => m.fedByUid == requestingUid).firstOrNull;
-      final fallbackBatch = _firestore.batch();
-      fallbackBatch.delete(feedingDocRef);
-      fallbackBatch.update(householdDocRef, <String, Object?>{
-        'lastFeeding': ownPrevious != null ? _feedingToFirestoreMap(ownPrevious) : null,
-        'todayMeals': todayMealsPayload,
-      });
-      await fallbackBatch.commit();
+      await commitUndo(sortedCandidates.where((m) => m.fedByUid == requestingUid).firstOrNull);
     }
   }
 
@@ -500,7 +390,7 @@ class FirestoreHouseholdRepository implements HouseholdRepository {
     int? caloriesPerUnit,
     String? note,
   }) async {
-    final validated = InMemoryHouseholdRepository.validateTreatInputs(
+    HouseholdStatePolicy.validateTreatInputs(
       preset: preset,
       givenByName: givenByName,
       customLabel: customLabel,
@@ -510,43 +400,37 @@ class FirestoreHouseholdRepository implements HouseholdRepository {
     );
 
     final householdDocRef = _householdsRef.doc(householdId);
-
     return _firestore.runTransaction<TreatEvent>((transaction) async {
       final snap = await transaction.get(householdDocRef);
       if (!snap.exists || snap.data() == null) {
         throw StateError('Household $householdId not found.');
       }
 
-      final household = _householdFromFirestore(snap.id, snap.data()!);
-      final logicalDate = household.schedule.logicalDateFor(now);
-      final treatId =
-          'treat_${logicalDate}_${now.millisecondsSinceEpoch}_${InMemoryHouseholdRepository.nextUniqueSuffix()}';
-
-      final newTreat = TreatEvent(
-        id: treatId,
-        preset: preset,
-        label: validated.label,
-        emoji: preset.emoji,
-        quantity: validated.quantity,
-        caloriesPerUnit: validated.caloriesPerUnit,
-        logicalDate: logicalDate,
+      final household = FirestoreHouseholdMapper.householdFromFirestore(snap.id, snap.data()!);
+      final newTreat = HouseholdStatePolicy.buildTreatEvent(
+        household: household,
         givenByUid: givenByUid,
-        givenByName: validated.givenByName,
-        givenAt: now,
-        note: validated.note,
+        givenByName: givenByName,
+        now: now,
+        preset: preset,
+        customLabel: customLabel,
+        quantity: quantity,
+        caloriesPerUnit: caloriesPerUnit,
+        note: note,
       );
-
-      final treatDocRef = householdDocRef.collection('treats').doc(treatId);
-      final prunedTreats = InMemoryHouseholdRepository.pruneTodayTreats(
+      final prunedTreats = HouseholdStatePolicy.pruneTodayTreats(
         <TreatEvent>[newTreat, ...household.todayTreats],
-        logicalDate,
+        newTreat.logicalDate,
       );
 
-      transaction.set(treatDocRef, _treatToFirestoreMap(newTreat));
+      transaction.set(
+        householdDocRef.collection('treats').doc(newTreat.id),
+        FirestoreHouseholdMapper.treatToFirestoreMap(newTreat),
+      );
       transaction.update(householdDocRef, <String, Object?>{
-        'todayTreats': prunedTreats.map(_treatToFirestoreMap).toList(growable: false),
+        'todayTreats':
+            prunedTreats.map(FirestoreHouseholdMapper.treatToFirestoreMap).toList(growable: false),
       });
-
       return newTreat;
     });
   }
@@ -562,169 +446,20 @@ class FirestoreHouseholdRepository implements HouseholdRepository {
 
     await _firestore.runTransaction<void>((transaction) async {
       final snap = await transaction.get(householdDocRef);
-      if (!snap.exists || snap.data() == null) {
-        return;
-      }
+      if (!snap.exists || snap.data() == null) return;
 
-      final household = _householdFromFirestore(snap.id, snap.data()!);
+      final household = FirestoreHouseholdMapper.householdFromFirestore(snap.id, snap.data()!);
       if (!household.members.containsKey(requestingUid)) {
         throw StateError('Only household members can delete treats.');
       }
 
-      final updatedTreats = household.todayTreats
-          .where((t) => t.id != treatId)
-          .map(_treatToFirestoreMap)
-          .toList(growable: false);
-
       transaction.delete(treatDocRef);
       transaction.update(householdDocRef, <String, Object?>{
-        'todayTreats': updatedTreats,
+        'todayTreats': household.todayTreats
+            .where((t) => t.id != treatId)
+            .map(FirestoreHouseholdMapper.treatToFirestoreMap)
+            .toList(growable: false),
       });
     });
-  }
-
-  Map<String, Object?> _feedingToFirestoreMap(FeedingEvent event) {
-    return <String, Object?>{
-      'id': event.id,
-      'mealPeriod': event.mealPeriod.name,
-      'windowId': event.effectiveWindowId,
-      'windowLabel': event.effectiveLabel,
-      'windowEmoji': event.effectiveEmoji,
-      'windowDate': event.windowDate,
-      'fedByUid': event.fedByUid,
-      'fedByName': event.fedByName,
-      'fedAt': Timestamp.fromDate(event.fedAt),
-      'isExtraMeal': event.isExtraMeal,
-    };
-  }
-
-  Map<String, Object?> _todayMealsToFirestoreMap(
-    Map<String, FeedingEvent> todayMeals,
-  ) {
-    return todayMeals.map(
-      (key, event) => MapEntry<String, Object?>(key, _feedingToFirestoreMap(event)),
-    );
-  }
-
-  Map<String, Object?> _treatToFirestoreMap(TreatEvent treat) {
-    return <String, Object?>{
-      'id': treat.id,
-      'preset': treat.preset.id,
-      'label': treat.label,
-      'emoji': treat.emoji,
-      'quantity': treat.quantity,
-      'caloriesPerUnit': treat.caloriesPerUnit,
-      'logicalDate': treat.logicalDate,
-      'givenByUid': treat.givenByUid,
-      'givenByName': treat.givenByName,
-      'givenAt': Timestamp.fromDate(treat.givenAt),
-      if (treat.note != null) 'note': treat.note,
-    };
-  }
-
-  Household _householdFromFirestore(String id, Map<String, Object?> data) {
-    final rawSchedule = data['schedule'];
-    final schedule = rawSchedule is Map<String, Object?>
-        ? MealSchedule.fromJson(rawSchedule)
-        : rawSchedule is Map
-            ? MealSchedule.fromJson(Map<String, Object?>.from(rawSchedule))
-            : const MealSchedule();
-
-    final membersMap = <String, HouseholdMember>{};
-    final rawMembers = data['members'];
-    if (rawMembers is Map) {
-      for (final entry in rawMembers.entries) {
-        final key = entry.key;
-        final val = entry.value;
-        if (key is String && val is Map) {
-          membersMap[key] = HouseholdMember.fromJson(
-            key,
-            Map<String, Object?>.from(val),
-          );
-        }
-      }
-    }
-
-    FeedingEvent? lastFeeding;
-    final rawLast = data['lastFeeding'];
-    if (rawLast is Map) {
-      final castLast = Map<String, Object?>.from(rawLast);
-      lastFeeding = _feedingFromFirestore(
-        (castLast['id'] as String?) ?? '',
-        castLast,
-      );
-    }
-
-    final todayMealsMap = <String, FeedingEvent>{};
-    final rawTodayMeals = data['todayMeals'];
-    if (rawTodayMeals is Map) {
-      for (final entry in rawTodayMeals.entries) {
-        final key = entry.key;
-        final val = entry.value;
-        if (key is String && val is Map) {
-          todayMealsMap[key] = _feedingFromFirestore(
-            key,
-            Map<String, Object?>.from(val),
-          );
-        }
-      }
-    }
-
-    final todayTreatsList = <TreatEvent>[];
-    final rawTodayTreats = data['todayTreats'];
-    if (rawTodayTreats is List) {
-      for (final item in rawTodayTreats) {
-        if (item is Map) {
-          todayTreatsList.add(
-            TreatEvent.fromJson(Map<String, Object?>.from(item)),
-          );
-        }
-      }
-    }
-
-    final dailyTreatLimit = ((data['dailyTreatLimit'] as num?)?.toInt() ?? 4).clamp(1, 50);
-
-    return Household(
-      id: id,
-      joinCode: (data['joinCode'] as String?) ?? 'SNOOP4',
-      petName: (data['petName'] as String?) ?? 'Snoop',
-      isPro: (data['isPro'] as bool?) ?? false,
-      createdAt: _parseTimestamp(data['createdAt']),
-      schedule: schedule,
-      members: membersMap,
-      lastFeeding: lastFeeding,
-      dailyTreatLimit: dailyTreatLimit,
-      todayMeals: Map<String, FeedingEvent>.unmodifiable(todayMealsMap),
-      todayTreats: List<TreatEvent>.unmodifiable(todayTreatsList),
-    );
-  }
-
-  FeedingEvent _feedingFromFirestore(String id, Map<String, Object?> data) {
-    return FeedingEvent.fromJson(data, fallbackId: id);
-  }
-
-  DateTime _parseTimestamp(Object? value) {
-    if (value is Timestamp) {
-      return value.toDate().toLocal();
-    }
-    if (value is DateTime) {
-      return value.toLocal();
-    }
-    if (value is String) {
-      return DateTime.tryParse(value)?.toLocal() ?? DateTime.now();
-    }
-    return DateTime.now();
-  }
-
-  static String _truncate(String input, int maxLength) {
-    if (input.length <= maxLength) return input;
-    return input.substring(0, maxLength);
-  }
-
-  String _generateJoinCode(String petName) {
-    final letters =
-        petName.toUpperCase().replaceAll(RegExp(r'[^A-Z]'), '').padRight(4, 'X').substring(0, 4);
-    final digits = (Random().nextInt(90) + 10).toString();
-    return '$letters$digits';
   }
 }
