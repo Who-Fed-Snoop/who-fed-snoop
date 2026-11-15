@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -63,10 +64,15 @@ class HomeWidgetSnapshot {
 /// whenever a meal is logged, a treat is tracked, or the meal window transitions,
 /// and bridges native Android App Links / NFC / Widget tap intents.
 class WidgetSyncService {
+  WidgetSyncService({
+    bool useEmulator = const bool.fromEnvironment('USE_FIREBASE_EMULATOR'),
+  }) : _useEmulator = useEmulator;
+
   static const MethodChannel _platformChannel = MethodChannel(
     'com.whofedsnoop.who_fed_snoop/platform',
   );
 
+  final bool _useEmulator;
   HomeWidgetSnapshot? _latestSnapshot;
 
   HomeWidgetSnapshot? get latestSnapshot => _latestSnapshot;
@@ -199,18 +205,11 @@ class WidgetSyncService {
       try {
         await _platformChannel.invokeMethod<bool>(
           'updateHomeWidget',
-          <String, Object?>{
-            'petName': snapshot.petName,
-            'headline': snapshot.headline,
-            'subheadline': snapshot.subheadline,
-            'isFed': snapshot.isFed,
-            'mealPeriod': activeWindow.label,
-            'windowEmoji': activeWindow.emoji,
-            'nextTransitionEpochMs': activeWindow.nextTransitionTime.millisecondsSinceEpoch,
-            'nextWindowLabel': activeWindow.nextWindowLabel,
-            'nextWindowEmoji': activeWindow.nextWindowEmoji,
-            'householdId': household.id,
-          },
+          buildPlatformPayload(
+            household: household,
+            activeWindow: activeWindow,
+            snapshot: snapshot,
+          ),
         );
       } on MissingPluginException {
         // Ignored in unit/widget test environments.
@@ -222,6 +221,36 @@ class WidgetSyncService {
     }
 
     return snapshot;
+  }
+
+  /// Builds the platform-channel payload persisted into Android
+  /// `who_fed_snoop_widget_prefs`, including `scheduleJson` and `useEmulator`
+  /// so background widget wakeups can resolve rollovers and sync Firestore.
+  @visibleForTesting
+  Map<String, Object?> buildPlatformPayload({
+    required Household household,
+    required ActiveMealWindow activeWindow,
+    required HomeWidgetSnapshot snapshot,
+  }) {
+    return <String, Object?>{
+      'petName': snapshot.petName,
+      'headline': snapshot.headline,
+      'subheadline': snapshot.subheadline,
+      'isFed': snapshot.isFed,
+      'mealPeriod': activeWindow.label,
+      'windowEmoji': activeWindow.emoji,
+      'windowId': activeWindow.windowId,
+      'windowDate': activeWindow.windowDate,
+      'nextTransitionEpochMs': activeWindow.nextTransitionTime.millisecondsSinceEpoch,
+      'nextWindowLabel': activeWindow.nextWindowLabel,
+      'nextWindowEmoji': activeWindow.nextWindowEmoji,
+      'householdId': household.id,
+      'scheduleJson': jsonEncode(household.schedule.toJson()),
+      'useEmulator': _useEmulator,
+      'dailyTreatLimit': household.dailyTreatLimit,
+      'todayTreatCount': snapshot.todayTreatCount,
+      'treatLogicalDate': activeWindow.windowDate,
+    };
   }
 
   static String _formatClockTime(DateTime time) {

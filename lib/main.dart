@@ -55,7 +55,9 @@ Future<void> main() async {
   final savedMemberName = scoopHolderStore.getMemberName();
   final savedMemberUid = scoopHolderStore.getMemberUid();
 
-  final widgetSyncService = WidgetSyncService();
+  final widgetSyncService = WidgetSyncService(
+    useEmulator: _useFirebaseEmulator,
+  );
   HouseholdRepository repository;
   var initialMemberUid = _resolveInitialInMemoryUid(
     savedUid: savedMemberUid,

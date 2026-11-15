@@ -1,3 +1,6 @@
+import 'dart:convert';
+
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:who_fed_snoop/data/repositories/household_repository.dart';
 import 'package:who_fed_snoop/data/services/widget_sync_service.dart';
@@ -347,6 +350,78 @@ void main() {
           ),
           throwsStateError,
         );
+      },
+    );
+  });
+
+  group('WidgetSyncService — Android Widget Payload (FB-003)', () {
+    testWidgets(
+      'syncHouseholdState pushes scheduleJson, useEmulator, and treat/window metadata on Android',
+      variant: TargetPlatformVariant.only(TargetPlatform.android),
+      (WidgetTester tester) async {
+        const channel = MethodChannel('com.whofedsnoop.who_fed_snoop/platform');
+        final recordedCalls = <MethodCall>[];
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
+          channel,
+          (MethodCall call) async {
+            recordedCalls.add(call);
+            return true;
+          },
+        );
+        addTearDown(() {
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+              .setMockMethodCallHandler(channel, null);
+        });
+
+        final morning = DateTime(2026, 11, 9, 8, 30);
+        final repo = InMemoryHouseholdRepository(initialClock: morning);
+        addTearDown(repo.dispose);
+        const hId = InMemoryHouseholdRepository.defaultHouseholdId;
+
+        await repo.updateHouseholdSettings(
+          householdId: hId,
+          requestingUid: InMemoryHouseholdRepository.ashleyUid,
+          petName: 'Snoop',
+          dailyTreatLimit: 5,
+          schedule: MealSchedule.fromWindows(<MealWindowConfig>[
+            MealWindowConfig.fromPreset(MealPeriod.breakfast, startHour: 5, startMinute: 30),
+            MealWindowConfig.fromPreset(MealPeriod.dinner, startHour: 17, startMinute: 15),
+          ]),
+        );
+        await repo.logTreat(
+          householdId: hId,
+          givenByUid: InMemoryHouseholdRepository.ashleyUid,
+          givenByName: 'Ashley',
+          now: morning,
+          preset: TreatPreset.trainingTreat,
+          quantity: 2,
+        );
+
+        final household = (await repo.watchHousehold(hId).first)!;
+        final activeWindow = ActiveMealWindow.forTime(morning, schedule: household.schedule);
+        final widgetSync = WidgetSyncService(useEmulator: true);
+
+        await widgetSync.syncHouseholdState(
+          household: household,
+          activeWindow: activeWindow,
+          now: morning,
+        );
+
+        expect(recordedCalls, hasLength(1));
+        expect(recordedCalls.first.method, equals('updateHomeWidget'));
+        final args = Map<String, Object?>.from(recordedCalls.first.arguments as Map);
+        expect(args['householdId'], equals(hId));
+        expect(args['useEmulator'], isTrue);
+        expect(args['windowId'], equals('breakfast'));
+        expect(args['windowDate'], equals('2026-11-09'));
+        expect(args['dailyTreatLimit'], equals(5));
+        expect(args['todayTreatCount'], equals(2));
+        expect(args['treatLogicalDate'], equals('2026-11-09'));
+
+        final decodedSchedule = MealSchedule.fromJson(
+          Map<String, Object?>.from(jsonDecode(args['scheduleJson']! as String) as Map),
+        );
+        expect(decodedSchedule, equals(household.schedule));
       },
     );
   });

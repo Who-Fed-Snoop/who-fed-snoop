@@ -1,29 +1,49 @@
 package com.whofedsnoop.who_fed_snoop
 
-import android.app.PendingIntent
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProvider
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
-import android.os.Build
 import android.os.Bundle
-import android.util.TypedValue
-import android.view.View
-import android.widget.RemoteViews
-import kotlin.math.roundToInt
 
+/**
+ * Android Home Screen AppWidget provider for Who Fed Snoop?
+ *
+ * Uses a render-first pipeline on every `onUpdate` / window-cutoff alarm:
+ * 1. Immediately renders from [WidgetPrefsStore] + [MealWindowResolver] rollover.
+ * 2. Arms [WidgetAlarmScheduler] for the resolved `nextTransitionEpochMs`.
+ * 3. Runs [WidgetFirestoreSync] (`goAsync()`, 1 Firestore read) to pick up
+ *    partner feedings or schedule changes logged from other devices.
+ */
 class WhoFedSnoopWidgetProvider : AppWidgetProvider() {
+
+    override fun onReceive(context: Context, intent: Intent) {
+        if (intent.action == WidgetAlarmScheduler.ACTION_WINDOW_TRANSITION) {
+            val manager = AppWidgetManager.getInstance(context)
+            val ids = manager.getAppWidgetIds(
+                ComponentName(context, WhoFedSnoopWidgetProvider::class.java)
+            )
+            if (ids.isEmpty()) {
+                WidgetAlarmScheduler.cancel(context)
+                return
+            }
+            val nextTransition = renderWidgetsFromPrefs(context, manager, ids, null)
+            WidgetAlarmScheduler.scheduleWindowCutoff(context, nextTransition)
+            WidgetFirestoreSync.syncAsync(context, goAsync())
+            return
+        }
+        super.onReceive(context, intent)
+    }
 
     override fun onUpdate(
         context: Context,
         appWidgetManager: AppWidgetManager,
         appWidgetIds: IntArray
     ) {
-        for (appWidgetId in appWidgetIds) {
-            updateWidget(context, appWidgetManager, appWidgetId, null)
-        }
+        val nextTransition = renderWidgetsFromPrefs(context, appWidgetManager, appWidgetIds, null)
+        WidgetAlarmScheduler.scheduleWindowCutoff(context, nextTransition)
+        WidgetFirestoreSync.syncAsync(context, goAsync())
     }
 
     override fun onAppWidgetOptionsChanged(
@@ -33,308 +53,89 @@ class WhoFedSnoopWidgetProvider : AppWidgetProvider() {
         newOptions: Bundle
     ) {
         super.onAppWidgetOptionsChanged(context, appWidgetManager, appWidgetId, newOptions)
-        updateWidget(context, appWidgetManager, appWidgetId, newOptions)
+        renderWidgetsFromPrefs(context, appWidgetManager, intArrayOf(appWidgetId), newOptions)
     }
 
-    internal enum class WidgetSizeTier {
-        COMPACT, // 2x1 (< 190dp)
-        MEDIUM,  // 3x1 (190dp..259dp)
-        WIDE     // 4x1+ (>= 260dp)
+    override fun onDisabled(context: Context) {
+        super.onDisabled(context)
+        WidgetAlarmScheduler.cancel(context)
     }
-
-    internal data class WidgetDisplayContent(
-        val badgeText: String,
-        val headlineText: String,
-        val subheadlineText: String,
-        val showSubheadline: Boolean,
-        val buttonText: String,
-        val rootPaddingH: Int,
-        val rootPaddingV: Int,
-        val buttonPaddingH: Int,
-        val buttonPaddingV: Int,
-        val badgeTextSizeSp: Float,
-        val headlineTextSizeSp: Float,
-        val subheadlineTextSizeSp: Float,
-        val buttonTextSizeSp: Float
-    )
 
     companion object {
-        const val PREFS_NAME = "who_fed_snoop_widget_prefs"
-        const val KEY_PET_NAME = "petName"
-        const val KEY_HEADLINE = "headline"
-        const val KEY_SUBHEADLINE = "subheadline"
-        const val KEY_IS_FED = "isFed"
-        const val KEY_MEAL_PERIOD = "mealPeriod"
-        const val KEY_WINDOW_EMOJI = "windowEmoji"
-        const val KEY_NEXT_TRANSITION_EPOCH_MS = "nextTransitionEpochMs"
-        const val KEY_NEXT_WINDOW_LABEL = "nextWindowLabel"
-        const val KEY_NEXT_WINDOW_EMOJI = "nextWindowEmoji"
-        const val KEY_HOUSEHOLD_ID = "householdId"
-
-        private const val MEDIUM_MIN_WIDTH_DP = 190
-        private const val WIDE_MIN_WIDTH_DP = 260
-
+        /**
+         * Called by [MainActivity] when Flutter pushes a fresh snapshot over the
+         * platform channel: re-renders immediately and re-arms the cutoff alarm
+         * without issuing a redundant Firestore read.
+         */
         fun updateAllWidgets(context: Context) {
+            val nextTransition = renderAllWidgetsFromPrefs(context)
+            WidgetAlarmScheduler.scheduleWindowCutoff(context, nextTransition)
+        }
+
+        /**
+         * Re-renders every active widget instance from [WidgetPrefsStore] with
+         * [MealWindowResolver] rollover applied, returning the resolved
+         * `nextTransitionEpochMs`.
+         */
+        fun renderAllWidgetsFromPrefs(context: Context): Long {
             val manager = AppWidgetManager.getInstance(context)
             val componentName = ComponentName(context, WhoFedSnoopWidgetProvider::class.java)
             val ids = manager.getAppWidgetIds(componentName)
-            for (id in ids) {
-                updateWidget(context, manager, id, null)
+            if (ids.isEmpty()) {
+                return 0L
             }
+            return renderWidgetsFromPrefs(context, manager, ids, null)
         }
 
-        internal fun resolveSizeTier(minWidthDp: Int): WidgetSizeTier = when {
-            minWidthDp <= 0 || minWidthDp < MEDIUM_MIN_WIDTH_DP -> WidgetSizeTier.COMPACT
-            minWidthDp < WIDE_MIN_WIDTH_DP -> WidgetSizeTier.MEDIUM
-            else -> WidgetSizeTier.WIDE
-        }
-
-        internal fun compactFedHeadline(
-            fullHeadline: String,
-            windowLabel: String,
-            petName: String
-        ): String {
-            val trimmed = fullHeadline.trim()
-            if (trimmed.isEmpty()) {
-                return "✅ $petName fed"
-            }
-            val suffix = " $windowLabel"
-            if (trimmed.length > suffix.length && trimmed.endsWith(suffix, ignoreCase = true)) {
-                return trimmed.dropLast(suffix.length).trimEnd()
-            }
-            return trimmed
-        }
-
-        internal fun buildWidgetContent(
-            tier: WidgetSizeTier,
-            petName: String,
-            isFed: Boolean,
-            windowLabel: String,
-            windowEmoji: String,
-            fullHeadline: String,
-            fullSubheadline: String
-        ): WidgetDisplayContent {
-            val fallbackHeadline = if (isFed) {
-                "✅ $petName fed"
-            } else {
-                "$windowEmoji $petName needs $windowLabel"
-            }
-            val resolvedHeadline = fullHeadline.ifBlank { fallbackHeadline }
-
-            return when (tier) {
-                WidgetSizeTier.COMPACT -> WidgetDisplayContent(
-                    badgeText = if (isFed) {
-                        "$windowEmoji ${windowLabel.uppercase()} · FED"
-                    } else {
-                        "$windowEmoji ${windowLabel.uppercase()}"
-                    },
-                    headlineText = if (isFed) {
-                        compactFedHeadline(resolvedHeadline, windowLabel, petName)
-                    } else {
-                        "$petName hungry"
-                    },
-                    subheadlineText = "",
-                    showSubheadline = false,
-                    buttonText = "Feed",
-                    rootPaddingH = 10,
-                    rootPaddingV = 8,
-                    buttonPaddingH = 10,
-                    buttonPaddingV = 7,
-                    badgeTextSizeSp = 11f,
-                    headlineTextSizeSp = 13f,
-                    subheadlineTextSizeSp = 11f,
-                    buttonTextSizeSp = 12f
-                )
-                WidgetSizeTier.MEDIUM -> WidgetDisplayContent(
-                    badgeText = "$windowEmoji ${windowLabel.uppercase()} WINDOW",
-                    headlineText = resolvedHeadline,
-                    subheadlineText = fullSubheadline,
-                    showSubheadline = fullSubheadline.isNotBlank(),
-                    buttonText = "Feed",
-                    rootPaddingH = 12,
-                    rootPaddingV = 8,
-                    buttonPaddingH = 12,
-                    buttonPaddingV = 8,
-                    badgeTextSizeSp = 11f,
-                    headlineTextSizeSp = 14f,
-                    subheadlineTextSizeSp = 11f,
-                    buttonTextSizeSp = 12.5f
-                )
-                WidgetSizeTier.WIDE -> WidgetDisplayContent(
-                    badgeText = "$windowEmoji ${windowLabel.uppercase()} WINDOW",
-                    headlineText = resolvedHeadline,
-                    subheadlineText = fullSubheadline,
-                    showSubheadline = fullSubheadline.isNotBlank(),
-                    buttonText = "I Fed $petName",
-                    rootPaddingH = 14,
-                    rootPaddingV = 10,
-                    buttonPaddingH = 14,
-                    buttonPaddingV = 9,
-                    badgeTextSizeSp = 11f,
-                    headlineTextSizeSp = 15.5f,
-                    subheadlineTextSizeSp = 12f,
-                    buttonTextSizeSp = 13f
-                )
-            }
-        }
-
-        private fun updateWidget(
+        private fun renderWidgetsFromPrefs(
             context: Context,
             appWidgetManager: AppWidgetManager,
-            appWidgetId: Int,
+            appWidgetIds: IntArray,
             appWidgetOptions: Bundle?
-        ) {
-            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            val petName = (prefs.getString(KEY_PET_NAME, "Snoop") ?: "Snoop").ifBlank { "Snoop" }
-            val storedHeadline = prefs.getString(KEY_HEADLINE, "🥣 $petName needs Breakfast")
-                ?: "🥣 $petName needs Breakfast"
-            val storedSubheadline = prefs.getString(
-                KEY_SUBHEADLINE,
-                "Tap to log & notify partner"
-            ) ?: "Tap to log & notify partner"
-            val storedIsFed = prefs.getBoolean(KEY_IS_FED, false)
-            val storedMealPeriod =
-                (prefs.getString(KEY_MEAL_PERIOD, "Breakfast") ?: "Breakfast").ifBlank { "Breakfast" }
-            val storedWindowEmoji =
-                (prefs.getString(KEY_WINDOW_EMOJI, "🐾") ?: "🐾").ifBlank { "🐾" }
-            val nextTransitionEpochMs = prefs.getLong(KEY_NEXT_TRANSITION_EPOCH_MS, 0L)
-            val storedNextWindowLabel = prefs.getString(KEY_NEXT_WINDOW_LABEL, "") ?: ""
-            val storedNextWindowEmoji =
-                (prefs.getString(KEY_NEXT_WINDOW_EMOJI, "🐾") ?: "🐾").ifBlank { "🐾" }
-            val householdId = (prefs.getString(KEY_HOUSEHOLD_ID, "household_snoop_01")
-                ?: "household_snoop_01").ifBlank { "household_snoop_01" }
-
-            val hasWindowRolledOver =
-                nextTransitionEpochMs > 0L && System.currentTimeMillis() >= nextTransitionEpochMs
-
-            val isFed: Boolean
-            val windowLabel: String
-            val windowEmoji: String
-            val fullHeadline: String
-            val fullSubheadline: String
-
-            if (hasWindowRolledOver) {
-                isFed = false
-                windowLabel = storedNextWindowLabel.ifBlank { storedMealPeriod }
-                windowEmoji = storedNextWindowEmoji
-                fullHeadline = "$windowEmoji $petName needs $windowLabel"
-                fullSubheadline = "Tap to log ${windowLabel.lowercase()} & notify partner"
-            } else {
-                isFed = storedIsFed
-                windowLabel = storedMealPeriod
-                windowEmoji = storedWindowEmoji
-                fullHeadline = storedHeadline
-                fullSubheadline = storedSubheadline
-            }
-
-            val options = appWidgetOptions ?: appWidgetManager.getAppWidgetOptions(appWidgetId)
-            val minWidthDp = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 0)
-            val tier = resolveSizeTier(minWidthDp)
-            val content = buildWidgetContent(
-                tier = tier,
-                petName = petName,
-                isFed = isFed,
-                windowLabel = windowLabel,
-                windowEmoji = windowEmoji,
-                fullHeadline = fullHeadline,
-                fullSubheadline = fullSubheadline
+        ): Long {
+            val snapshot = WidgetPrefsStore.read(context)
+            val nowMs = System.currentTimeMillis()
+            val resolved = MealWindowResolver.resolveFromCachedSnapshot(
+                snapshot = snapshot,
+                nowEpochMs = nowMs
             )
 
-            val views = RemoteViews(context.packageName, R.layout.who_fed_snoop_widget)
-
-            val rootPadH = dpToPx(context, content.rootPaddingH)
-            val rootPadV = dpToPx(context, content.rootPaddingV)
-            views.setViewPadding(R.id.widget_root, rootPadH, rootPadV, rootPadH, rootPadV)
-
-            views.setInt(
-                R.id.widget_root,
-                "setBackgroundResource",
-                if (isFed) R.drawable.widget_background_fed else R.drawable.widget_background_hungry
-            )
-
-            val badgeColorRes = if (isFed) R.color.widget_badge_fed else R.color.widget_badge_hungry
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                // Passing the color resource ID lets Android 12+ launchers re-theme immediately
-                // when OS Dark Mode toggles, without waiting for an APPWIDGET_UPDATE broadcast.
-                views.setColor(R.id.widget_badge, "setTextColor", badgeColorRes)
-            } else {
-                views.setTextColor(R.id.widget_badge, context.getColor(badgeColorRes))
-            }
-
-            views.setTextViewText(R.id.widget_badge, content.badgeText)
-            views.setTextViewTextSize(
-                R.id.widget_badge,
-                TypedValue.COMPLEX_UNIT_SP,
-                content.badgeTextSizeSp
-            )
-
-            views.setTextViewText(R.id.widget_headline, content.headlineText)
-            views.setTextViewTextSize(
-                R.id.widget_headline,
-                TypedValue.COMPLEX_UNIT_SP,
-                content.headlineTextSizeSp
-            )
-
-            if (content.showSubheadline) {
-                views.setViewVisibility(R.id.widget_subheadline, View.VISIBLE)
-                views.setTextViewText(R.id.widget_subheadline, content.subheadlineText)
-                views.setTextViewTextSize(
-                    R.id.widget_subheadline,
-                    TypedValue.COMPLEX_UNIT_SP,
-                    content.subheadlineTextSizeSp
-                )
-            } else {
-                views.setViewVisibility(R.id.widget_subheadline, View.GONE)
-            }
-
-            if (isFed) {
-                views.setViewVisibility(R.id.widget_action_button, View.GONE)
-            } else {
-                val btnPadH = dpToPx(context, content.buttonPaddingH)
-                val btnPadV = dpToPx(context, content.buttonPaddingV)
-                views.setViewVisibility(R.id.widget_action_button, View.VISIBLE)
-                views.setViewPadding(R.id.widget_action_button, btnPadH, btnPadV, btnPadH, btnPadV)
-                views.setTextViewText(R.id.widget_action_button, content.buttonText)
-                views.setTextViewTextSize(
-                    R.id.widget_action_button,
-                    TypedValue.COMPLEX_UNIT_SP,
-                    content.buttonTextSizeSp
+            // If we rolled forward using scheduleJson, persist the rolled state so
+            // subsequent reads and alarm reschedules stay aligned even while offline.
+            if (snapshot.nextTransitionEpochMs > 0L &&
+                nowMs >= snapshot.nextTransitionEpochMs &&
+                resolved.nextTransitionEpochMs > nowMs
+            ) {
+                WidgetPrefsStore.write(
+                    context,
+                    snapshot.copy(
+                        headline = resolved.headline,
+                        subheadline = resolved.subheadline,
+                        isFed = resolved.isFed,
+                        mealPeriod = resolved.windowLabel,
+                        windowEmoji = resolved.windowEmoji,
+                        windowId = resolved.windowId,
+                        windowDate = resolved.windowDate,
+                        nextTransitionEpochMs = resolved.nextTransitionEpochMs,
+                        nextWindowLabel = resolved.nextWindowLabel,
+                        nextWindowEmoji = resolved.nextWindowEmoji,
+                        todayTreatCount = resolved.todayTreatCount,
+                        treatLogicalDate = resolved.windowDate
+                    )
                 )
             }
 
-            // Clicking the card opens the app
-            val openAppIntent = Intent(context, MainActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            for (appWidgetId in appWidgetIds) {
+                WidgetContentFormatter.bindAndApplyWidget(
+                    context = context,
+                    appWidgetManager = appWidgetManager,
+                    appWidgetId = appWidgetId,
+                    state = resolved,
+                    householdId = snapshot.householdId,
+                    appWidgetOptions = appWidgetOptions
+                )
             }
-            val openPendingIntent = PendingIntent.getActivity(
-                context,
-                0,
-                openAppIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-            views.setOnClickPendingIntent(R.id.widget_root, openPendingIntent)
-
-            // Clicking the Feed pill triggers the 1-tap /tap/{householdId} deep link
-            val tapFeedIntent = Intent(
-                Intent.ACTION_VIEW,
-                Uri.parse("https://whofedsnoop.com/tap/$householdId"),
-                context,
-                MainActivity::class.java
-            ).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
-            }
-            val tapFeedPendingIntent = PendingIntent.getActivity(
-                context,
-                1,
-                tapFeedIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-            views.setOnClickPendingIntent(R.id.widget_action_button, tapFeedPendingIntent)
-
-            appWidgetManager.updateAppWidget(appWidgetId, views)
+            return resolved.nextTransitionEpochMs
         }
-
-        private fun dpToPx(context: Context, dp: Int): Int =
-            (dp * context.resources.displayMetrics.density).roundToInt()
     }
 }

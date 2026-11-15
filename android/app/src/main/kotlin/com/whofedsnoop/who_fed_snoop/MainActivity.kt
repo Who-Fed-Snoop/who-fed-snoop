@@ -1,6 +1,5 @@
 package com.whofedsnoop.who_fed_snoop
 
-import android.content.Context
 import android.content.Intent
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -42,56 +41,36 @@ class MainActivity : FlutterActivity() {
         channel.setMethodCallHandler { call, result ->
             when (call.method) {
                 "updateHomeWidget" -> {
-                    val prefs = applicationContext.getSharedPreferences(
-                        WhoFedSnoopWidgetProvider.PREFS_NAME,
-                        Context.MODE_PRIVATE
-                    )
+                    val existing = WidgetPrefsStore.read(applicationContext)
                     val nextTransitionEpochMs =
                         (call.argument<Number>("nextTransitionEpochMs"))?.toLong() ?: 0L
+                    val snapshot = WidgetDisplaySnapshot(
+                        petName = call.argument<String>("petName") ?: "Snoop",
+                        headline = call.argument<String>("headline") ?: "",
+                        subheadline = call.argument<String>("subheadline") ?: "",
+                        isFed = call.argument<Boolean>("isFed") ?: false,
+                        mealPeriod = call.argument<String>("mealPeriod") ?: "Breakfast",
+                        windowEmoji = call.argument<String>("windowEmoji") ?: "🐾",
+                        windowId = call.argument<String>("windowId") ?: existing.windowId,
+                        windowDate = call.argument<String>("windowDate") ?: existing.windowDate,
+                        nextTransitionEpochMs = nextTransitionEpochMs,
+                        nextWindowLabel = call.argument<String>("nextWindowLabel") ?: "",
+                        nextWindowEmoji = call.argument<String>("nextWindowEmoji") ?: "🐾",
+                        householdId = call.argument<String>("householdId")
+                            ?: WidgetPrefsStore.DEFAULT_HOUSEHOLD_ID,
+                        scheduleJson = call.argument<String>("scheduleJson")
+                            ?: existing.scheduleJson,
+                        useEmulator = call.argument<Boolean>("useEmulator") ?: false,
+                        dailyTreatLimit = (call.argument<Number>("dailyTreatLimit"))?.toInt()
+                            ?: existing.dailyTreatLimit,
+                        todayTreatCount = (call.argument<Number>("todayTreatCount"))?.toInt()
+                            ?: 0,
+                        treatLogicalDate = call.argument<String>("treatLogicalDate")
+                            ?: existing.treatLogicalDate,
+                        lastSyncEpochMs = System.currentTimeMillis()
+                    )
 
-                    prefs.edit()
-                        .putString(
-                            WhoFedSnoopWidgetProvider.KEY_PET_NAME,
-                            call.argument<String>("petName") ?: "Snoop"
-                        )
-                        .putString(
-                            WhoFedSnoopWidgetProvider.KEY_HEADLINE,
-                            call.argument<String>("headline") ?: ""
-                        )
-                        .putString(
-                            WhoFedSnoopWidgetProvider.KEY_SUBHEADLINE,
-                            call.argument<String>("subheadline") ?: ""
-                        )
-                        .putBoolean(
-                            WhoFedSnoopWidgetProvider.KEY_IS_FED,
-                            call.argument<Boolean>("isFed") ?: false
-                        )
-                        .putString(
-                            WhoFedSnoopWidgetProvider.KEY_MEAL_PERIOD,
-                            call.argument<String>("mealPeriod") ?: "Breakfast"
-                        )
-                        .putString(
-                            WhoFedSnoopWidgetProvider.KEY_WINDOW_EMOJI,
-                            call.argument<String>("windowEmoji") ?: "🐾"
-                        )
-                        .putLong(
-                            WhoFedSnoopWidgetProvider.KEY_NEXT_TRANSITION_EPOCH_MS,
-                            nextTransitionEpochMs
-                        )
-                        .putString(
-                            WhoFedSnoopWidgetProvider.KEY_NEXT_WINDOW_LABEL,
-                            call.argument<String>("nextWindowLabel") ?: ""
-                        )
-                        .putString(
-                            WhoFedSnoopWidgetProvider.KEY_NEXT_WINDOW_EMOJI,
-                            call.argument<String>("nextWindowEmoji") ?: "🐾"
-                        )
-                        .putString(
-                            WhoFedSnoopWidgetProvider.KEY_HOUSEHOLD_ID,
-                            call.argument<String>("householdId") ?: "household_snoop_01"
-                        )
-                        .apply()
-
+                    WidgetPrefsStore.write(applicationContext, snapshot)
                     WhoFedSnoopWidgetProvider.updateAllWidgets(applicationContext)
                     result.success(true)
                 }

@@ -21,7 +21,7 @@ Canonical build, test, release, and deploy reference. Auto-synced with stack cha
 - **Lint/Format:** `flutter_lints: ^5.0.0`, strict casts/inference/raw-types, `page_width: 100`, `trailing_commas: preserve` (`analysis_options.yaml`)
 - **Firebase (`who-fed-snoop`):** Anonymous Auth, Firestore (`nam5`, `firestore.rules`, `firestore.indexes.json`), Hosting (`build/web`, `firebase.json`)
 - **Functions (`functions/`):** Firebase Functions v2, Node 20, TypeScript `^5.6.0` (`cd functions && npm install && npm run build`)
-- **Targets:** Web (`web/`), Android Kotlin JVM 17 + `AppWidgetProvider` + NFC/App Links (`android/`), macOS (`macos/`)
+- **Targets:** Web (`web/`), Android Kotlin JVM 17 + `AppWidgetProvider` (`WidgetFirestoreSync` via `com.google.gms.google-services:4.4.2` & Firebase BOM `33.16.0` `firebase-firestore`/`firebase-auth`, `AlarmManager.setAndAllowWhileIdle` window-cutoff alarm + `RECEIVE_BOOT_COMPLETED`, `WidgetSyncService` `scheduleJson`/`useEmulator` prefs sync) + NFC/App Links (`android/`), macOS (`macos/`)
 - **CLIs:** `flutter`, `dart`, `firebase`, `gh`, `node` (v20)
 
 ## 2. Local Run & Deep Links
@@ -45,10 +45,13 @@ Targeted runs: `flutter test test/domain/`, `flutter test test/data/`, `flutter 
 | `test/ui/onboarding_sheet_test.dart` | Pack HQ modal, Scoop Holder switching, persona init, `50/40/6` bounds, double-tap guards, overflow checks |
 | `test/ui/treats_and_schedule_ui_test.dart` | `TreatJarCard`, `CustomTreatSheet`, Chonk Alert, treat drawer delete, `HouseholdSettingsSheet` |
 
+**Android JVM Unit Tests (`android/app/src/test/`):** `junit:junit:4.13.2` + `org.json:json:20240303` covering `MealScheduleModel`, `MealWindowResolver` (overnight/pre-first-window wrap-around, multi-rollover offline resolution, treat date rollover, ISO-8601 parsing), `WidgetFirestoreSync.parseAndResolve`, and `WidgetContentFormatter` responsive tiers.
+
 **UI invariants:** Finite animations only (`AnimatedSwitcher`/`AnimatedContainer` so `pumpAndSettle()` never hangs); zero `RenderFlex` overflow at `360×800` and compact height `<680`.
 
 ## 4. Verification & Builds
-- **Gate (`./scripts/verify.sh`):** Runs (1) `check-dev-docs-sync.sh --check`, (2) `dart format` check, (3) `flutter analyze --no-pub --fatal-infos`, (4) `flutter test --no-pub -r failures-only`, (5) `flutter build web --release --no-wasm-dry-run`. *(CI template: `scripts/github-ci-workflow.yml` -> move to `.github/workflows/ci.yml` to activate.)*
+- **Gate (`./scripts/verify.sh`):** Runs (1) `check-dev-docs-sync.sh --check`, (2) `dart format` check, (3) `flutter analyze --no-pub --fatal-infos`, (4) `flutter test --no-pub -r failures-only`, (5) `flutter build web --release --no-pub --no-wasm-dry-run`. *(CI template: `scripts/github-ci-workflow.yml` -> move to `.github/workflows/ci.yml` to activate.)*
+- **Android Gradle Gate:** `JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" ./android/gradlew -p android --no-daemon testDebugUnitTest assembleDebug :app:lintDebug` (uses `android/app/google-services.json` when present locally for Google Services resource generation; conditionally skipped in `android/app/build.gradle.kts` if absent).
 - **Android APKs:** `flutter build apk --release --split-per-abi` -> `build/app/outputs/flutter-apk/app-arm64-v8a-release.apk` (currently debug-signed in `android/app/build.gradle.kts` for sideloading; add upload keystore before Play Store release).
 - **macOS:** `flutter build macos --release` -> `build/macos/Build/Products/Release/`.
 
