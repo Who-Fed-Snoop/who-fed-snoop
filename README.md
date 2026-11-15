@@ -8,6 +8,7 @@
 - **Original Vision, Product & Business Plan:** [docs/PROJECT_VISION_AND_PLAN.md](docs/PROJECT_VISION_AND_PLAN.md)
 - **UI Design Direction & Architectural Decisions:** [docs/DESIGN_DIRECTION_AND_DECISIONS.md](docs/DESIGN_DIRECTION_AND_DECISIONS.md)
 - **Productization Gap Analysis & Roadmap:** [docs/PRODUCTIZATION_GAPS_AND_ROADMAP.md](docs/PRODUCTIZATION_GAPS_AND_ROADMAP.md)
+- **Dogfood Feedback & Bug Log (`FB-###`):** [docs/FEEDBACK_LOG.md](docs/FEEDBACK_LOG.md)
 - **Developer Loop (Build, Test, Release & Deploy):** [docs/DEVELOPMENT_LOOP.md](docs/DEVELOPMENT_LOOP.md)
 
 ---

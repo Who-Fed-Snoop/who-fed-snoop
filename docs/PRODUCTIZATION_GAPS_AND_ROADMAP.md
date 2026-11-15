@@ -5,6 +5,7 @@
 > **Companion Docs:**
 > - [Original Project Vision, Product & Business Plan](./PROJECT_VISION_AND_PLAN.md)
 > - [UI Design Direction & Architectural Decisions](./DESIGN_DIRECTION_AND_DECISIONS.md)
+> - [Dogfood Feedback & Bug Log (`FB-###`)](./FEEDBACK_LOG.md)
 
 ---
 
@@ -48,7 +49,7 @@ Before sharing `whofedsnoop.com` publicly or submitting to Google Play / Apple A
 | Gap | Codebase Location | Impact & Detail |
 | :--- | :--- | :--- |
 | **Hardcoded Snoop bootstrap** | [`lib/main.dart`](../lib/main.dart), [`firestore_household_repository.dart`](../lib/data/repositories/firestore_household_repository.dart) | Auto-joins every anonymous visitor into `household_snoop_01` as `'Keni'`. Needs clean first-run onboarding while preserving `household_snoop_01` solely for Keni & Ashley. |
-| **No local device persistence** | [`pubspec.yaml`](../pubspec.yaml), [`feeder_view_model.dart`](../lib/ui/features/feeder/view_models/feeder_view_model.dart) | `shared_preferences` is not installed. If a user creates a new household or joins via code and then closes the app or refreshes the browser, `FeederViewModel` resets `_householdId` to `'household_snoop_01'` and `_currentMemberName` to `'Keni'`. |
+| **No local device persistence** (`[FB-001]`) | [`pubspec.yaml`](../pubspec.yaml), [`feeder_view_model.dart`](../lib/ui/features/feeder/view_models/feeder_view_model.dart) | `shared_preferences` is not installed. Cold-starting from the Home Widget or NFC `/tap` resets `_currentMemberName` to `'Keni'` on Ashley's phone (`switchActiveMember` is RAM-only), and refreshing Web resets `_householdId` to `'household_snoop_01'`. |
 | **Hardcoded Snoop/Keni/Ashley copy on non-Snoop households** | [`feeder_view.dart`](../lib/ui/features/feeder/views/feeder_view.dart), [`snoop_mascot.dart`](../lib/ui/core/snoop_mascot.dart), [`onboarding_sheet.dart`](../lib/ui/features/onboarding/views/onboarding_sheet.dart) | Every household sees `'90 lb Black Labradoodle • Official Belly Tracker'`, `SnoopTraitBadges` (`90 lb Black Labradoodle`), collar tag `'${petName} • 90 LB'`, speech bubble `'89.9 lbs'`, `Keni` / `Ashley` Scoop Holder `ChoiceChip`s, and the `'SNOOP-CAM • ANDROID HOME WIDGET PREVIEW'` card even on Web/iOS. |
 | **High-collision 2-digit join codes** | [`firestore_household_repository.dart`](../lib/data/repositories/firestore_household_repository.dart) (`_generateJoinCode`) | Generates `4 pet letters + 10..99` (only **90 combinations per pet name**) with zero uniqueness check. Common dog names (`LUNA`, `BELLA`, `MAXI`, `MILO`) collide almost immediately, and `.limit(1)` joins the wrong family's dog. |
 | **Silent demo fallback on init error** | [`lib/main.dart`](../lib/main.dart) (`on Object`) | Any network/Firebase init error silently swaps in `InMemoryHouseholdRepository`, leading users to think their meal logs synced to their partner when nothing was saved. |
@@ -76,7 +77,8 @@ Before sharing `whofedsnoop.com` publicly or submitting to Google Play / Apple A
 | Gap | Codebase Location | Impact & Detail |
 | :--- | :--- | :--- |
 | **Missing `ios/` target & ecosystem** | Repo root, [`firebase_options.dart`](../lib/firebase_options.dart) | No `ios/` directory (`macos/` exists, `ios/` does not). Couples very frequently mix iPhone + Android; public launch needs iOS build target, APNs, Universal Links (`apple-app-site-association`), iOS WidgetKit (Home + Lock Screen), and CoreNFC support. |
-| **Home Widget stale when partner feeds** | [`WhoFedSnoopWidgetProvider.kt`](../android/app/src/main/kotlin/com/whofedsnoop/who_fed_snoop/WhoFedSnoopWidgetProvider.kt) | Widget `SharedPreferences` only update when the *local* Flutter UI is open or when the window clock rolls over. When your partner feeds Snoop from *their* phone while your app is closed, your home screen widget still says *"Snoop needs Breakfast"* until you open the app. |
+| **Home Widget stale when partner feeds** (`[FB-003]`) | [`WhoFedSnoopWidgetProvider.kt`](../android/app/src/main/kotlin/com/whofedsnoop/who_fed_snoop/WhoFedSnoopWidgetProvider.kt) | Widget `SharedPreferences` only update when the *local* Flutter UI is open or on coarse OS window ticks. When your partner feeds Snoop from *their* phone while your app is closed, your home screen widget stays stale until you open the app. |
+| **Home Widget oversized (`4×1`) & lacks Dark Mode** (`[FB-002]`) | [`who_fed_snoop_widget_info.xml`](../android/app/src/main/res/xml/who_fed_snoop_widget_info.xml), [`widget_background_hungry.xml`](../android/app/src/main/res/drawable/widget_background_hungry.xml) | Forces a full-width `4×1` (`250dp`) row and hardcodes bright light pastels (`#FFFBEB` / `#ECFDF5`) with no `values-night` / `drawable-night` theme, glaring against OS Dark Mode home screens. |
 | **High-friction third-party NFC setup** | [`README.md`](../README.md) (§2) | Users currently must install a third-party app (*NFC Tools* by Wakdev) and manually configure NDEF URI records without doubling `https://`. Crucial gap if selling **"The Snoop Tap Tag"** commercially! |
 | **Offline `runTransaction` failure in low-signal pantries** | [`firestore_household_repository.dart`](../lib/data/repositories/firestore_household_repository.dart) (`logFeeding`) | Cloud Firestore `runTransaction` requires live network connectivity and **fails offline**, whereas deterministic `WriteBatch` writes queue cleanly in Firestore's offline cache when tapping an NFC sticker in a basement/garage pantry. |
 | **Device-local timezone skew** | [`meal_window.dart`](../lib/domain/models/meal_window.dart) (`ActiveMealWindow.forTime`) | Uses `now.toLocal()` on each phone instead of an explicit household IANA timezone (`household.timezone`). A traveling partner in a different timezone sees shifted window cutoffs and can log under the wrong `windowDate` / `windowId`. |
@@ -95,14 +97,26 @@ Before sharing `whofedsnoop.com` publicly or submitting to Google Play / Apple A
 
 ```mermaid
 flowchart LR
+    DF["Dogfood Fast-Lane: Keni & Ashley Live Household (Continuous)"]
     P0["Phase 0: Multi-Tenancy, Security & Snoop Continuity"]
     P1["Phase 1: Live FCM Push, Undo Retraction & Offline Sync"]
     P2["Phase 2: iOS Target, Widgets, Smart Links & Claimable NFC Tags"]
     P3["Phase 3: Timezones, CI/CD, Observability & Store Readiness"]
     P4["Phase 4: Lifetime Pro, Tip Jar, Reminders, Multi-Pet & Watch/Voice"]
 
+    DF -.-> P0
     P0 --> P1 --> P2 --> P3 --> P4
 ```
+
+---
+
+### Dogfood Fast-Lane — Live Household Bugs & UX Polish (Continuous)
+**Goal:** Give Keni, Ashley, and Snoop immediate fixes and daily-use improvements on `household_snoop_01` without waiting on public-launch multi-tenancy or store submission phases.
+
+- **Canonical Tracker:** [`docs/FEEDBACK_LOG.md`](./FEEDBACK_LOG.md) (`FB-###` IDs).
+- **Triage Rule:** Whenever daily household dogfooding uncovers a bug, UX papercut, or idea, it is logged and deduplicated against §2–§4 first:
+  - **Fix Now (`Dogfood Queue`):** Daily pain points or self-contained slices of Phases 0–4 that improve Keni & Ashley's live workflow right away.
+  - **Phase-Linked (`Phase 0`–`Phase 4`):** Broader productization items cross-referenced inline below via `[FB-###]` tags.
 
 ---
 
@@ -112,7 +126,7 @@ flowchart LR
 1. **Zero-Downtime Founder Protection, Deferred Anonymous Auth & Clean First-Run Onboarding:**
    - Remove `ensureDefaultHousehold` from [`lib/main.dart`](../lib/main.dart).
    - **Defer `signInAnonymously()` & Enable Auto-Cleanup:** Do not mint an Anonymous Auth UID on cold start when no persisted pack or deep link is present. Keep landing-page browsing and *"Try Snoop Demo Mode"* (`InMemoryHouseholdRepository`) 100% unauthenticated (`0` Auth MAUs for bots, link previews, and casual visitors), calling `signInAnonymously()` only when a user creates/joins a pack or opens `/join/{code}`, `/tap/{token}`, or `/s/{token}`. Enable **Firebase Auth Anonymous Account Auto-Cleanup** in the console so dormant unlinked guest sessions never count toward Identity Platform's 50k MAU ceiling.
-   - Add `shared_preferences` to persist `activeHouseholdId`, `memberName`, and `knownHouseholdIds` locally across app restarts and browser reloads.
+   - Add `shared_preferences` to persist `activeHouseholdId`, `memberName` (device-bound Scoop Holder `[FB-001]`), and `knownHouseholdIds` locally across app restarts, Home Widget launches, NFC `/tap` intents, and browser reloads.
    - Present first-time visitors (who did not arrive via `/join/{code}`, `/tap/{token}`, or `/s/{token}`) with a Neo-Brutalist **Welcome to Pack HQ** screen (*"Start My Dog's Pack"* vs. *"Join Partner's Pack"* + *"Try Snoop Demo Mode"*).
    - Migrate/preserve `household_snoop_01` (`isPro: true`) specifically for Keni & Ashley and purge any stray anonymous UIDs.
 2. **Lock Down `firestore.rules` & Zero-Function Join Lookup:**
@@ -145,8 +159,9 @@ flowchart LR
    - Change meal notification `deepLink` from `/tap/${householdId}` to `https://whofedsnoop.com/h/${householdId}` (safe view-only route).
    - Add `onMealDeleted` (`onDocumentDeleted("households/{householdId}/feedings/{feedingId}")`) using deterministic `tag: feedingId` (Android) and `apns-collapse-id: feedingId` (iOS) so tapping **UNDO** replaces the earlier *"Snoop is fed!"* alert with *"↩️ Undo: {actor} reverted {mealLabel} — {petName} still needs to eat!"*.
    - Add APNs payload config and automatic cleanup of `messaging/registration-token-not-registered` tokens.
-3. **Background Home Widget Sync via Data Push:**
-   - Handle data-only / background FCM messages in `FirebaseMessaging.onBackgroundMessage` on Android (and Notification Service Extension / background push on iOS) to update `WhoFedSnoopWidgetProvider` `SharedPreferences` immediately when a partner feeds or undoes a meal—even when the app is closed.
+3. **Background Home Widget Sync, Compact Sizing & Dark Mode (`[FB-002]`, `[FB-003]`):**
+   - Handle data-only / background FCM messages in `FirebaseMessaging.onBackgroundMessage` on Android (and Notification Service Extension / background push on iOS) + native Kotlin Firestore single-doc fallback & window-cutoff alarm so `WhoFedSnoopWidgetProvider` updates immediately when a partner feeds, undoes a meal, or a window rolls over—even when the app is closed.
+   - Support compact `2×1` (`targetCellWidth="2"`) responsive widget layouts and `values-night` / `drawable-night` OS Dark Theme surfaces on Android.
 4. **Optional 1-Tap Account Linking & App Store Account Deletion:**
    - Keep zero-friction Anonymous Auth on Day 1, and add optional **"Back Up My Pack (Sign in with Apple / Google)"** in Pack HQ using `linkWithCredential` so reinstalling or switching phones restores all households.
    - Add **"Leave Pack / Delete My Account & Data"** flow required for App Store & Google Play approval.
@@ -243,6 +258,9 @@ flowchart LR
    - Keep active daily pet summaries denormalized inside the single `households/{id}` document (`pets` map) rather than separate per-pet collection listeners so daily 2-second glances remain **1 Firestore read** regardless of pet count.
 4. **Voice & Watch Shortcuts:**
    - Apple Siri App Intents & Shortcuts (*"Hey Siri, I fed Snoop"*), Google Assistant App Actions, Apple Watch complication/widget, and WearOS Tile.
+5. **Opt-In Poop / Potty Check-In (`[FB-004]` — Late Phase 4 / Post-Launch):**
+   - Optional household toggle (*"Track Poop / Walks"*) adding a compact 1-tap `💩 Poop Logged` pill (with optional `✅ Solid` / `⚠️ Soft` health tag for partner & sitter visibility and 10s LIFO Undo).
+   - Denormalize `lastPoop` / `todayPoopCount` on `households/{id}` (and lazy-stream history only when expanded) to preserve the 1-read single-document cost guardrail and the **2-Second Rule**.
 
 ---
 
