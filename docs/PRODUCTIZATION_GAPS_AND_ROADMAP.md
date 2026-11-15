@@ -19,7 +19,7 @@ Every recommendation in this roadmap is anchored to the non-negotiable decisions
    - **100% Free Core App + "Buy Snoop a Treat" Tip Jar (\$1 – \$5)**
    - **One-Time "Pro Household" Lifetime Unlock (\$2.99 – \$4.99 once per household, flips `isPro = true`)**
    - **Physical + Digital Bundle: "The Snoop Tap Tag" (\$10 – \$15 waterproof NTAG213 sticker/magnet)**
-5. **Strict Cloud Cost Guardrails:** Preserve single-document default streaming (`households/{id}` = 1 read per state change), lazy subcollection history loading, and zero-cold-start Firestore operations so per-household cloud costs stay negligible (`<1 KB` state, ~60 writes/month).
+5. **Strict Cloud Cost Guardrails (Scale-to-Zero Firebase Blaze):** Because the \$3.99 one-time Lifetime Pro model has no recurring MRR to absorb fixed \$15–\$25/month SaaS floors, stay on **Firebase Blaze** (`$0/mo` up to ~2,000 daily active households; `~$6–$10/mo` at 10,000 daily active households) while enforcing single-document default streaming (`households/{id}` = 1 read per state change), lazy history loading, deferred Anonymous Auth + auto-cleanup, zero-scan reminder scheduling, Artifact Registry image pruning, and optional Cloudflare static CDN shielding.
 
 ---
 
@@ -65,10 +65,12 @@ Before sharing `whofedsnoop.com` publicly or submitting to Google Play / Apple A
 ### 3.3 Push Notifications, Cloud Cost & Backend Triggers
 | Gap | Codebase Location | Impact & Detail |
 | :--- | :--- | :--- |
-| **Spark vs. Blaze deployment gap** | [`PROJECT_VISION_AND_PLAN.md`](./PROJECT_VISION_AND_PLAN.md), [`functions/src/index.ts`](../functions/src/index.ts) | 2nd-Gen Cloud Functions (`onMealLogged`, `onTreatLogged`) and Cloud Scheduler require Firebase **Blaze** (pay-as-you-go). Must configure `maxInstances`, App Check, and strict GCP budget alerts so Blaze stays at \$0.00/month within free tier quotas. |
+| **Spark vs. Blaze deployment & spend-cap gap** | [`PROJECT_VISION_AND_PLAN.md`](./PROJECT_VISION_AND_PLAN.md), [`functions/src/index.ts`](../functions/src/index.ts) | 2nd-Gen Cloud Functions (`onMealLogged`, `onTreatLogged`) and Cloud Scheduler require Firebase **Blaze** (pay-as-you-go), which has **no native hard spend cap**. Needs `minInstances: 0`, `maxInstances`, App Check, Artifact Registry image pruning (`<0.5 GiB` free cap), `<= 3` Cloud Scheduler jobs, and GCP budget/kill-switch alerts so Blaze stays at \$0.00/month within free-tier quotas. |
+| **Eager cold-start Anonymous Auth MAU bloat** | [`lib/main.dart`](../lib/main.dart) (`signInAnonymously`) | `main.dart` calls `signInAnonymously()` unconditionally on every cold start—including web crawlers, iMessage/Slack link previews, and casual Demo Mode visitors on `whofedsnoop.com`—risking Identity Platform's 50,000 free MAU ceiling (`$0.0055/MAU` overage) unless auth is deferred until pack creation/join and Anonymous Auto-Cleanup is enabled. |
 | **FCM client missing + single-token schema** | [`pubspec.yaml`](../pubspec.yaml), [`household.dart`](../lib/domain/models/household.dart), [`functions/src/index.ts`](../functions/src/index.ts) | `fcmToken` is a single nullable string per UID (breaks multi-device users and exposes tokens inside the main household doc), APNs headers are missing for iOS, and dead tokens (`registration-token-not-registered`) are never pruned. |
 | **10-Second Undo vs. Instant Push race** | [`functions/src/index.ts`](../functions/src/index.ts) | `onMealLogged` fires immediately on `onDocumentCreated`. If Keni bumps the button and taps **UNDO** 3 seconds later, Ashley already received *"🐾 Snoop is fed!"* and may skip feeding Snoop for real. Needs `onDocumentDeleted` collapse/retraction push (`tag` / `apns-collapse-id`). |
 | **History stream read limit drift** | [`firestore_household_repository.dart`](../lib/data/repositories/firestore_household_repository.dart) vs. [`PROJECT_VISION_AND_PLAN.md`](./PROJECT_VISION_AND_PLAN.md) | Vision doc specifies `.limit(14)` for lazy history, but repository currently streams `limit = 50` feedings + `limit = 50` treats (**up to 100 reads** per history expansion). Lowering default limit to `20` protects free-tier reads. |
+| **Viral Flutter Web Hosting bandwidth exposure** | [`firebase.json`](../firebase.json) (`hosting`) | Even with zero raster assets (`CustomPaint` mascot), Flutter Web's CanvasKit/Wasm bundle (~2–3 MB) against Firebase Hosting's `360 MB/day` (~10.8 GB/mo) free transfer tier (`$0.15/GB` overage) can incur egress charges during a viral social spike unless fronted by Cloudflare CDN / Cloudflare Pages. |
 
 ### 3.4 Native Platforms (iOS, Android, NFC & Web)
 | Gap | Codebase Location | Impact & Detail |
@@ -107,8 +109,9 @@ flowchart LR
 ### Phase 0 — Multi-Tenant Isolation, Security Hardening & Founder Continuity
 **Goal:** Make the app safe for arbitrary strangers to open without polluting `household_snoop_01` or exposing user data, while keeping Keni & Ashley's live setup untouched.
 
-1. **Zero-Downtime Founder Protection & Clean First-Run Onboarding:**
+1. **Zero-Downtime Founder Protection, Deferred Anonymous Auth & Clean First-Run Onboarding:**
    - Remove `ensureDefaultHousehold` from [`lib/main.dart`](../lib/main.dart).
+   - **Defer `signInAnonymously()` & Enable Auto-Cleanup:** Do not mint an Anonymous Auth UID on cold start when no persisted pack or deep link is present. Keep landing-page browsing and *"Try Snoop Demo Mode"* (`InMemoryHouseholdRepository`) 100% unauthenticated (`0` Auth MAUs for bots, link previews, and casual visitors), calling `signInAnonymously()` only when a user creates/joins a pack or opens `/join/{code}`, `/tap/{token}`, or `/s/{token}`. Enable **Firebase Auth Anonymous Account Auto-Cleanup** in the console so dormant unlinked guest sessions never count toward Identity Platform's 50k MAU ceiling.
    - Add `shared_preferences` to persist `activeHouseholdId`, `memberName`, and `knownHouseholdIds` locally across app restarts and browser reloads.
    - Present first-time visitors (who did not arrive via `/join/{code}`, `/tap/{token}`, or `/s/{token}`) with a Neo-Brutalist **Welcome to Pack HQ** screen (*"Start My Dog's Pack"* vs. *"Join Partner's Pack"* + *"Try Snoop Demo Mode"*).
    - Migrate/preserve `household_snoop_01` (`isPro: true`) specifically for Keni & Ashley and purge any stray anonymous UIDs.
@@ -127,7 +130,7 @@ flowchart LR
 
 **Phase 0 Exit Criteria:**
 - Firebase Emulator rule tests prove anonymous `list` and non-member `get`/`update` on `/households` return `PERMISSION_DENIED`.
-- Cold-restarting the app on Android and Web preserves the user's created/joined household and member persona.
+- Cold-launching `whofedsnoop.com` or using *"Try Snoop Demo Mode"* mints `0` Firebase Auth UIDs; cold-restarting after creating/joining a pack on Android and Web preserves the user's household and member persona.
 
 ---
 
@@ -189,9 +192,11 @@ flowchart LR
      - `functions` TypeScript compilation + unit tests.
      - Firebase Local Emulator tests covering `firestore.rules` security matrix and `FirestoreHouseholdRepository` transactions/batches.
    - Sync minor doc-vs-code constants in [`DESIGN_DIRECTION_AND_DECISIONS.md`](./DESIGN_DIRECTION_AND_DECISIONS.md).
-3. **Observability & Blaze Cost Armor:**
+3. **Observability, Blaze Cost Armor & Viral Web Bandwidth Shield:**
    - Enable **Firebase App Check** (Play Integrity, App Attest, reCAPTCHA Enterprise) across Firestore and Functions.
-   - Set `{ maxInstances: 5, memory: "256MiB" }` on all 2nd-gen Cloud Functions and configure GCP billing alerts at \$1 / \$5.
+   - Set `{ minInstances: 0, maxInstances: 5, memory: "256MiB" }` on all 2nd-gen Cloud Functions, configure an **Artifact Registry cleanup policy** (retain only the latest 2 container revisions per function so CI/CD builds stay permanently under the `0.5 GiB` free storage cap), and keep total `onSchedule` jobs `<= 3` across the GCP billing account (Cloud Scheduler's free tier).
+   - Configure GCP billing alerts at \$1 / \$5 / \$10 wired to a Pub/Sub billing-alert/kill-switch handler to guard against runaway trigger loops (since Blaze has no native hard spend cap).
+   - *(Optional Zero-Code Hybrid)* Front `whofedsnoop.com` static assets (`build/web`) with **Cloudflare CDN or Cloudflare Pages** for **\$0 unlimited static bandwidth** during viral social spikes while keeping Firebase Auth, Firestore, Functions, and FCM for dynamic state.
    - Add `firebase_crashlytics` (fatal + async errors) and privacy-light `firebase_analytics` funnel events (`household_created`, `partner_joined`, `meal_logged`, `nfc_tapped`).
 4. **Release Signing, Branding Assets & Legal Compliance:**
    - Configure upload keystore signing + R8 rules in `android/app/build.gradle.kts`.
@@ -228,10 +233,14 @@ flowchart LR
 1. **Monetization Wiring (Zero Subscriptions):**
    - Integrate `in_app_purchase` / RevenueCat for the **One-Time "Pro Household" Unlock (\$3.99 non-consumable)** and **"Buy Snoop a Treat" Tip Jar (\$1.99 / \$4.99 consumables)**, verified server-side before setting `households/{id}.isPro = true`.
    - Add **"Get a Snoop Tap Tag (\$12 Free Shipping)"** card in Pack HQ linking to a 1-click Stripe Payment Link (auto-unlocking `isPro` or NFC support when the mailed `/t/{TAG_CODE}` sticker is claimed!).
-2. **Smart Missed-Meal Reminders with Lock-Screen Action:**
-   - Optional per-window cutoff alert (e.g., *"Remind us if Breakfast isn't logged by 9:30 AM"*), evaluated in `household.timezone` via scheduled Cloud Function, dispatching an actionable notification with an instant **`[I Fed {petName}]`** lock-screen action button (`UNNotificationAction` / Android `BroadcastReceiver`).
-3. **Multi-Pet Tabs & Daily Meds Toggle:**
+2. **Smart Missed-Meal Reminders with Lock-Screen Action (Zero-Scan Cost Guardrail):**
+   - Optional per-window cutoff alert (e.g., *"Remind us if Breakfast isn't logged by 9:30 AM"*), evaluated in `household.timezone` and dispatching an actionable notification with an instant **`[I Fed {petName}]`** lock-screen action button (`UNNotificationAction` / Android `BroadcastReceiver`).
+   - **Strict Zero-Scan Architecture (Never Poll All Pro Households):** Avoid naive `onSchedule` collection scans (which would burn ~288,000 reads/day across 2,000 Pro households). Implement via either:
+     - **Local-First Schedule + Silent Push Cancel (`0` Firestore reads):** Schedule local device notifications (`flutter_local_notifications` `zonedSchedule`) for the cutoff time and cancel/suppress them via the Phase 1.3 background FCM data push when any partner logs the meal; **or**
+     - **Indexed Due-Queue / Cloud Tasks (`<= 1` read per empty tick):** Query only due reminders via an indexed `nextReminderAt` field (`.where('remindersEnabled', isEqualTo: true).where('nextReminderAt', isLessThanOrEqualTo: now)`, advancing `nextReminderAt` on meal log or dispatch) or enqueue per-window **Cloud Tasks** (1M free ops/month).
+3. **Multi-Pet Tabs & Daily Meds Toggle (Single-Document Stream Guardrail):**
    - Allow Pro households with 2+ pets (e.g. *Snoop* + *Biscuit*) to switch pets via 1-tap header pills or *"Feed All Pets"*, plus an optional 1-tap daily medication/supplement pill (e.g. `💊 Apoquel` / `🦴 Joint Chew`) that stays faithful to the **2-Second Rule**.
+   - Keep active daily pet summaries denormalized inside the single `households/{id}` document (`pets` map) rather than separate per-pet collection listeners so daily 2-second glances remain **1 Firestore read** regardless of pet count.
 4. **Voice & Watch Shortcuts:**
    - Apple Siri App Intents & Shortcuts (*"Hey Siri, I fed Snoop"*), Google Assistant App Actions, Apple Watch complication/widget, and WearOS Tile.
 
@@ -239,13 +248,13 @@ flowchart LR
 
 ## 5. Pre-Launch Productization Checklist
 
-- [ ] **Phase 0:** `ensureDefaultHousehold` removed from public cold start; `household_snoop_01` preserved for Keni & Ashley; `shared_preferences` persistence active.
+- [ ] **Phase 0:** `ensureDefaultHousehold` removed from public cold start; `signInAnonymously()` deferred until pack create/join/deep-link + Anonymous Auto-Cleanup enabled (`0` MAUs for Demo Mode/bots); `household_snoop_01` preserved for Keni & Ashley; `shared_preferences` persistence active.
 - [ ] **Phase 0:** `firestore.rules` blocks `list` and non-member `get`/`update` on `/households`; `/joinCodes/{code}` Crockford Base32 uniqueness enforced; `/s/{sitterToken}` scoped & revocable.
 - [ ] **Phase 0:** Non-Snoop households render pet-neutral weight/trait copy and dynamic member chips while keeping Snoop as brand mascot.
-- [ ] **Phase 1:** `firebase_messaging` wired on Android & Web; `/tap` push deep-link bug fixed to `/h/{id}`; `onMealDeleted` Undo collapse push live; offline batch queueing verified.
+- [ ] **Phase 1:** `firebase_messaging` wired on Android & Web; `/tap` push deep-link bug fixed to `/h/{id}`; `onMealDeleted` Undo collapse push live; offline batch queueing & `limit = 20` history cap verified.
 - [ ] **Phase 1:** Optional Apple/Google account linking + App Store-compliant Account & Data Deletion implemented.
 - [ ] **Phase 2:** `ios/` target, SwiftUI WidgetKit, CoreNFC, Universal Links (`apple-app-site-association`), and fixed `.well-known/assetlinks.json` deployed.
 - [ ] **Phase 2:** Claimable `/t/{tagCode}` NFC sticker flow + in-app blank NFC writer shipped.
-- [ ] **Phase 3:** Household IANA timezone wired; `.github/workflows/ci.yml` running Flutter + Functions + Firestore Emulator tests; App Check + Crashlytics + Blaze budget caps enabled; Privacy Policy & release signing complete.
-- [ ] **Phase 4:** \$3.99 Lifetime Pro Household IAP + Tip Jar + Snoop Tap Tag checkout + Missed-Meal Reminders + Multi-Pet/Meds live.
+- [ ] **Phase 3:** Household IANA timezone wired; `.github/workflows/ci.yml` running Flutter + Functions + Firestore Emulator tests; App Check + Crashlytics + Artifact Registry cleanup (`<= 2` images) + `<= 3` Cloud Scheduler jobs + Blaze budget/kill-switch alerts (+ optional Cloudflare static CDN shield) enabled; Privacy Policy & release signing complete.
+- [ ] **Phase 4:** \$3.99 Lifetime Pro Household IAP + Tip Jar + Snoop Tap Tag checkout + zero-scan Missed-Meal Reminders + single-doc Multi-Pet/Meds live.
 
