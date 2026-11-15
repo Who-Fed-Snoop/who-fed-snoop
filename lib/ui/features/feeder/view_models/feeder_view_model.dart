@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../../../../data/repositories/household_repository.dart';
+import '../../../../data/services/scoop_holder_store.dart';
 import '../../../../data/services/widget_sync_service.dart';
 import '../../../../domain/models/deep_link_route.dart';
 import '../../../../domain/models/feeding_event.dart';
@@ -75,27 +76,48 @@ class FeederViewModel extends ChangeNotifier {
   FeederViewModel({
     required HouseholdRepository repository,
     required WidgetSyncService widgetSyncService,
+    ScoopHolderStore? scoopHolderStore,
     String initialHouseholdId = InMemoryHouseholdRepository.defaultHouseholdId,
     String initialMemberUid = InMemoryHouseholdRepository.keniUid,
     String initialMemberName = 'Keni',
     DateTime Function()? clock,
   })  : _repository = repository,
         _widgetSyncService = widgetSyncService,
+        _scoopHolderStore = scoopHolderStore,
         _householdId = initialHouseholdId,
         _currentMemberUid = initialMemberUid,
         _currentMemberName = initialMemberName,
         _clock = clock ?? DateTime.now {
+    if (scoopHolderStore != null) {
+      final storedName = scoopHolderStore.getMemberName()?.trim();
+      final storedUid = scoopHolderStore.getMemberUid()?.trim();
+      if (storedName != null && storedName.isNotEmpty) {
+        _isDeviceBound = true;
+        _currentMemberName = _truncateMemberName(storedName);
+        if (repository is InMemoryHouseholdRepository) {
+          _currentMemberUid = (storedUid != null && storedUid.isNotEmpty)
+              ? storedUid
+              : _resolveInMemoryUidForName(storedName, fallback: initialMemberUid);
+        }
+      } else {
+        _isDeviceBound = false;
+        _bindingCompleter = Completer<void>();
+      }
+    }
     _subscribeToHousehold(_householdId);
     _scheduleWindowTransitionTimer();
   }
 
   final HouseholdRepository _repository;
   final WidgetSyncService _widgetSyncService;
+  final ScoopHolderStore? _scoopHolderStore;
   final DateTime Function() _clock;
 
   String _householdId;
   String _currentMemberUid;
   String _currentMemberName;
+  bool _isDeviceBound = true;
+  bool _hasSyncedMissingMemberOnLoad = false;
 
   StreamSubscription<Household?>? _householdSub;
   StreamSubscription<List<FeedingEvent>>? _historySub;
@@ -103,6 +125,7 @@ class FeederViewModel extends ChangeNotifier {
   Timer? _undoTimer;
   Timer? _windowTransitionTimer;
   Completer<void>? _initialLoadCompleter;
+  Completer<void>? _bindingCompleter;
 
   Household? _household;
   List<FeedingEvent> _history = const <FeedingEvent>[];
@@ -145,6 +168,8 @@ class FeederViewModel extends ChangeNotifier {
   String? get errorMessage => _errorMessage;
   String get currentMemberUid => _currentMemberUid;
   String get currentMemberName => _currentMemberName;
+  bool get isDeviceBound => _isDeviceBound;
+  bool get needsScoopHolderPrompt => !_isDeviceBound;
   bool get isSitterMode => _currentMemberName == 'Dog Sitter';
   bool get canSimulatePartner => _repository is InMemoryHouseholdRepository;
 
@@ -276,6 +301,12 @@ class FeederViewModel extends ChangeNotifier {
         _completeInitialLoad();
 
         if (updatedHousehold != null) {
+          if (_isDeviceBound &&
+              !_hasSyncedMissingMemberOnLoad &&
+              !updatedHousehold.members.containsKey(_currentMemberUid)) {
+            _hasSyncedMissingMemberOnLoad = true;
+            unawaited(_syncBoundMemberName(updatedHousehold.id));
+          }
           _widgetSyncService.syncHouseholdState(
             household: updatedHousehold,
             activeWindow: activeWindow,
@@ -413,6 +444,47 @@ class FeederViewModel extends ChangeNotifier {
     if (completer != null && !completer.isCompleted) {
       await completer.future;
     }
+  }
+
+  void _completeBinding() {
+    final completer = _bindingCompleter;
+    if (completer != null && !completer.isCompleted) {
+      completer.complete();
+    }
+  }
+
+  Future<void> _waitForDeviceBound() async {
+    if (_isDeviceBound) return;
+    final completer = _bindingCompleter;
+    if (completer != null && !completer.isCompleted) {
+      await completer.future;
+    }
+  }
+
+  Future<void> _syncBoundMemberName(String householdId) async {
+    if (_isDisposed) return;
+    try {
+      await _repository.updateMemberName(
+        householdId: householdId,
+        memberUid: _currentMemberUid,
+        memberName: _currentMemberName,
+      );
+    } on Object {
+      // Best-effort registration when missing on cold start; never clobbers or blocks UI.
+    }
+  }
+
+  static String _truncateMemberName(String raw) {
+    final trimmed = raw.trim();
+    if (trimmed.isEmpty) return 'Member';
+    return trimmed.length <= 50 ? trimmed : trimmed.substring(0, 50);
+  }
+
+  static String _resolveInMemoryUidForName(String name, {required String fallback}) {
+    final lower = name.trim().toLowerCase();
+    if (lower == 'keni') return InMemoryHouseholdRepository.keniUid;
+    if (lower == 'ashley') return InMemoryHouseholdRepository.ashleyUid;
+    return fallback;
   }
 
   void _subscribeToHistoryStreams(String householdId) {
@@ -869,21 +941,50 @@ class FeederViewModel extends ChangeNotifier {
   /// Backward-compatible alias for [undoLastAction].
   Future<void> undoLastFeed() => undoLastAction();
 
-  /// Switches the active phone persona (e.g. between Keni and Ashley).
+  /// Binds or switches the active phone Scoop Holder (e.g. between Keni and Ashley),
+  /// persists the selection locally, and syncs `households/{id}.members[uid].name`.
   ///
   /// When running against live Firestore, keeps [_currentMemberUid] anchored to
   /// the authenticated device UID so `firestore.rules` (`fedByUid == request.auth.uid`)
   /// is always satisfied; when running against [InMemoryHouseholdRepository],
   /// switches the simulated UID as well.
-  void switchActiveMember({required String uid, required String name}) {
+  Future<void> switchActiveMember({required String uid, required String name}) async {
     if (_isDisposed) return;
+    final cleanName = _truncateMemberName(name);
     if (_repository is InMemoryHouseholdRepository) {
       _currentMemberUid = uid;
     }
-    _currentMemberName = name;
+    _currentMemberName = cleanName;
+    _isDeviceBound = true;
+    _completeBinding();
     _clearUndoStack();
     notifyListeners();
+
+    await _scoopHolderStore?.saveScoopHolder(
+      name: cleanName,
+      uid: _currentMemberUid,
+    );
+
+    final currentHousehold = _household;
+    if (!_isDisposed && currentHousehold != null) {
+      try {
+        await _repository.updateMemberName(
+          householdId: currentHousehold.id,
+          memberUid: _currentMemberUid,
+          memberName: cleanName,
+        );
+      } on Object catch (e) {
+        if (!_isDisposed) {
+          _errorMessage = _formatError(e);
+          notifyListeners();
+        }
+      }
+    }
   }
+
+  /// Binds an unbound device to a specific Scoop Holder for future cold starts.
+  Future<void> bindScoopHolder({required String uid, required String name}) =>
+      switchActiveMember(uid: uid, name: name);
 
   /// Creates a brand new household and switches to it.
   Future<void> createNewHousehold({
@@ -899,10 +1000,16 @@ class FeederViewModel extends ChangeNotifier {
         petName: petName,
       );
       if (_isDisposed) return;
-      _currentMemberName = memberName.trim().isEmpty ? 'Keni' : memberName.trim();
+      _currentMemberName = memberName.trim().isEmpty ? 'Keni' : _truncateMemberName(memberName);
+      _isDeviceBound = true;
+      _completeBinding();
       _householdId = created.id;
       _clearUndoStack();
       _subscribeToHousehold(created.id, initialHousehold: created);
+      await _scoopHolderStore?.saveScoopHolder(
+        name: _currentMemberName,
+        uid: _currentMemberUid,
+      );
     } finally {
       _isSwitchingHousehold = false;
     }
@@ -922,10 +1029,16 @@ class FeederViewModel extends ChangeNotifier {
         memberName: memberName,
       );
       if (_isDisposed) return;
-      _currentMemberName = memberName.trim().isEmpty ? 'Ashley' : memberName.trim();
+      _currentMemberName = memberName.trim().isEmpty ? 'Ashley' : _truncateMemberName(memberName);
+      _isDeviceBound = true;
+      _completeBinding();
       _householdId = joined.id;
       _clearUndoStack();
       _subscribeToHousehold(joined.id, initialHousehold: joined);
+      await _scoopHolderStore?.saveScoopHolder(
+        name: _currentMemberName,
+        uid: _currentMemberUid,
+      );
     } finally {
       _isSwitchingHousehold = false;
     }
@@ -945,6 +1058,8 @@ class FeederViewModel extends ChangeNotifier {
       switch (route.kind) {
         case DeepLinkKind.nfcTapToFeed:
           await _waitForHouseholdLoaded();
+          if (_isDisposed) return;
+          await _waitForDeviceBound();
           if (_isDisposed) return;
 
           if (route.targetId != _householdId) {
@@ -1009,6 +1124,8 @@ class FeederViewModel extends ChangeNotifier {
 
           if (joinedOk || matchesActiveHousehold) {
             _currentMemberName = 'Dog Sitter';
+            _isDeviceBound = true;
+            _completeBinding();
             _errorMessage = null;
             _partnerNotificationBanner =
                 '🦴 Dog Sitter Guest Pass active — tap below when you feed ${_household?.petName ?? "Snoop"}!';
@@ -1149,6 +1266,7 @@ class FeederViewModel extends ChangeNotifier {
     _windowTransitionTimer?.cancel();
     _windowTransitionTimer = null;
     _completeInitialLoad();
+    _completeBinding();
     _householdSub?.cancel();
     _historySub?.cancel();
     _treatHistorySub?.cancel();

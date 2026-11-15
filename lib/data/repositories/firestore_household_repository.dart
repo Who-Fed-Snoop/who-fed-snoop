@@ -24,22 +24,23 @@ class FirestoreHouseholdRepository implements HouseholdRepository {
       _firestore.collection('households');
 
   /// Ensures the default `household_snoop_01` (`joinCode: SNOOP4`) exists in Firestore
-  /// and that the authenticated [memberUid] is registered in `members`.
+  /// and, when [memberName] is bound, registers [memberUid] if not already present.
+  ///
+  /// Never clobbers an existing `members[memberUid]` entry on cold start.
   Future<void> ensureDefaultHousehold({
     required String memberUid,
-    required String memberName,
+    String? memberName,
   }) async {
     final docRef = _householdsRef.doc(
       InMemoryHouseholdRepository.defaultHouseholdId,
     );
     final snap = await docRef.get();
     final now = DateTime.now();
-    final cleanMember = _truncate(
-      memberName.trim().isEmpty ? 'Keni' : memberName.trim(),
-      50,
-    );
+    final trimmedName = memberName?.trim() ?? '';
+    final hasBoundName = trimmedName.isNotEmpty;
 
     if (!snap.exists || snap.data() == null) {
+      final cleanMember = _truncate(hasBoundName ? trimmedName : 'Keni', 50);
       await docRef.set(<String, Object?>{
         'joinCode': InMemoryHouseholdRepository.defaultJoinCode,
         'petName': 'Snoop',
@@ -63,7 +64,8 @@ class FirestoreHouseholdRepository implements HouseholdRepository {
 
     final data = snap.data()!;
     final members = data['members'];
-    if (members is Map && !members.containsKey(memberUid)) {
+    if (hasBoundName && members is Map && !members.containsKey(memberUid)) {
+      final cleanMember = _truncate(trimmedName, 50);
       await docRef.update(<String, Object?>{
         'members.$memberUid': <String, Object?>{
           'name': cleanMember,
@@ -218,6 +220,58 @@ class FirestoreHouseholdRepository implements HouseholdRepository {
     final updatedMembers = Map<String, HouseholdMember>.of(existing.members)
       ..[memberUid] = newMember;
 
+    return existing.copyWith(members: updatedMembers);
+  }
+
+  @override
+  Future<Household> updateMemberName({
+    required String householdId,
+    required String memberUid,
+    required String memberName,
+  }) async {
+    final docRef = _householdsRef.doc(householdId);
+    final snap = await docRef.get();
+    if (!snap.exists || snap.data() == null) {
+      throw StateError('Household $householdId not found.');
+    }
+
+    final existing = _householdFromFirestore(snap.id, snap.data()!);
+    final trimmed = memberName.trim();
+    final cleanName = _truncate(trimmed.isEmpty ? 'Member' : trimmed, 50);
+    final existingMember = existing.members[memberUid];
+
+    if (existingMember != null) {
+      if (existingMember.name == cleanName) {
+        return existing;
+      }
+      await docRef.update(<String, Object?>{
+        'members.$memberUid.name': cleanName,
+      });
+      final updatedMembers = Map<String, HouseholdMember>.of(existing.members)
+        ..[memberUid] = HouseholdMember(
+          uid: memberUid,
+          name: cleanName,
+          fcmToken: existingMember.fcmToken,
+          joinedAt: existingMember.joinedAt,
+        );
+      return existing.copyWith(members: updatedMembers);
+    }
+
+    final now = DateTime.now();
+    final newMember = HouseholdMember(
+      uid: memberUid,
+      name: cleanName,
+      joinedAt: now,
+    );
+    await docRef.update(<String, Object?>{
+      'members.$memberUid': <String, Object?>{
+        'name': newMember.name,
+        'fcmToken': null,
+        'joinedAt': Timestamp.fromDate(now),
+      },
+    });
+    final updatedMembers = Map<String, HouseholdMember>.of(existing.members)
+      ..[memberUid] = newMember;
     return existing.copyWith(members: updatedMembers);
   }
 

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:who_fed_snoop/data/repositories/household_repository.dart';
+import 'package:who_fed_snoop/data/services/scoop_holder_store.dart';
 import 'package:who_fed_snoop/data/services/widget_sync_service.dart';
 import 'package:who_fed_snoop/domain/models/feeding_event.dart';
 import 'package:who_fed_snoop/domain/models/household.dart';
@@ -111,6 +112,18 @@ class _GatedHouseholdRepository implements HouseholdRepository {
   }
 
   @override
+  Future<Household> updateMemberName({
+    required String householdId,
+    required String memberUid,
+    required String memberName,
+  }) =>
+      _inner.updateMemberName(
+        householdId: householdId,
+        memberUid: memberUid,
+        memberName: memberName,
+      );
+
+  @override
   Future<Household> updateHouseholdSettings({
     required String householdId,
     required String requestingUid,
@@ -194,6 +207,7 @@ class _GatedHouseholdRepository implements HouseholdRepository {
 void main() {
   FeederViewModel createTestViewModel({
     HouseholdRepository? repository,
+    ScoopHolderStore? scoopHolderStore,
     String initialMemberName = 'Keni',
     DateTime? now,
   }) {
@@ -202,6 +216,7 @@ void main() {
     final vm = FeederViewModel(
       repository: repo,
       widgetSyncService: WidgetSyncService(),
+      scoopHolderStore: scoopHolderStore,
       initialMemberName: initialMemberName,
       clock: () => fixedNow,
     );
@@ -256,7 +271,10 @@ void main() {
       expect(nameField.controller?.text.length, equals(50));
 
       // Switch to New Pet mode and verify 40-char maxLength on pet name
-      await tester.tap(find.text('New Pet'));
+      final newPetTab = find.text('New Pet');
+      await tester.ensureVisible(newPetTab);
+      await tester.pumpAndSettle();
+      await tester.tap(newPetTab);
       await tester.pumpAndSettle();
 
       final petNameField = tester.widget<TextField>(
@@ -483,6 +501,7 @@ void main() {
     'Renders OnboardingSheet and nested HouseholdSettingsSheet with zero RenderFlex overflows at 360x800 and 412x915',
     (WidgetTester tester) async {
       const viewports = <Size>[
+        Size(360, 640),
         Size(360, 800),
         Size(412, 915),
       ];
@@ -542,6 +561,64 @@ void main() {
         Navigator.of(tester.element(find.byType(OnboardingSheet))).pop();
         await tester.pumpAndSettle();
       }
+    },
+  );
+
+  testWidgets(
+    'Pack HQ Scoop Holder card switches Keni / Ashley / Custom, persists locally, and syncs household members',
+    (WidgetTester tester) async {
+      final fixedNow = DateTime(2026, 11, 8, 9, 30);
+      final repo = InMemoryHouseholdRepository(initialClock: fixedNow);
+      final store = InMemoryScoopHolderStore(
+        initialName: 'Keni',
+        initialUid: InMemoryHouseholdRepository.keniUid,
+      );
+      final viewModel = createTestViewModel(
+        repository: repo,
+        scoopHolderStore: store,
+        now: fixedNow,
+      );
+      addTearDown(() {
+        viewModel.dispose();
+        repo.dispose();
+      });
+
+      await mountAndOpenOnboarding(tester, viewModel);
+
+      expect(find.byKey(OnboardingSheet.scoopHolderCardKey), findsOneWidget);
+      expect(find.text('Bound: Keni'), findsOneWidget);
+
+      // Switch Scoop Holder to Ashley in Pack HQ
+      await tester.tap(find.byKey(OnboardingSheet.ashleyPersonaChipKey));
+      await tester.pumpAndSettle();
+
+      expect(viewModel.currentMemberName, equals('Ashley'));
+      expect(store.getMemberName(), equals('Ashley'));
+      expect(find.text('Bound: Ashley'), findsOneWidget);
+
+      final nameField = tester.widget<TextField>(
+        find.byKey(OnboardingSheet.nameFieldKey),
+      );
+      expect(nameField.controller?.text, equals('Ashley'));
+
+      // Switch to a custom Scoop Holder name via Custom dialog
+      await tester.tap(find.byKey(OnboardingSheet.customPersonaButtonKey));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        find.byKey(OnboardingSheet.customPersonaDialogFieldKey),
+        'Grandma',
+      );
+      await tester.tap(find.byKey(OnboardingSheet.customPersonaDialogSaveKey));
+      await tester.pumpAndSettle();
+
+      expect(viewModel.currentMemberName, equals('Grandma'));
+      expect(store.getMemberName(), equals('Grandma'));
+      expect(find.text('Bound: Grandma'), findsOneWidget);
+      expect(
+        viewModel.household?.members[viewModel.currentMemberUid]?.name,
+        equals('Grandma'),
+      );
     },
   );
 }

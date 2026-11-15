@@ -1,7 +1,9 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:who_fed_snoop/data/repositories/household_repository.dart';
+import 'package:who_fed_snoop/data/services/scoop_holder_store.dart';
 import 'package:who_fed_snoop/data/services/widget_sync_service.dart';
 import 'package:who_fed_snoop/domain/models/feeding_event.dart';
 import 'package:who_fed_snoop/domain/models/household.dart';
@@ -21,6 +23,7 @@ class _ControllableHouseholdRepository implements HouseholdRepository {
   bool failLogFeeding = false;
   bool failHistoryStreams = false;
   int logFeedingCalls = 0;
+  int updateMemberNameCalls = 0;
 
   @override
   Stream<Household?> watchHousehold(String householdId) async* {
@@ -79,6 +82,20 @@ class _ControllableHouseholdRepository implements HouseholdRepository {
         memberUid: memberUid,
         memberName: memberName,
       );
+
+  @override
+  Future<Household> updateMemberName({
+    required String householdId,
+    required String memberUid,
+    required String memberName,
+  }) {
+    updateMemberNameCalls += 1;
+    return _delegate.updateMemberName(
+      householdId: householdId,
+      memberUid: memberUid,
+      memberName: memberName,
+    );
+  }
 
   @override
   Future<Household> updateHouseholdSettings({
@@ -760,6 +777,167 @@ void main() {
 
         expect(vm.isHistoryExpanded, isTrue);
         expect(vm.errorMessage, contains('permission error'));
+      },
+    );
+  });
+
+  group('FeederViewModel — Scoop Holder Persistence & Non-Clobbering Sync (FB-001)', () {
+    test(
+      'unbound SharedPreferences store prompts once, persists Ashley across cold start, and never clobbers on restart',
+      () async {
+        SharedPreferences.setMockInitialValues(<String, Object>{});
+        final prefs = await SharedPreferences.getInstance();
+        final store1 = SharedPreferencesScoopHolderStore(prefs);
+        final fixedNow = DateTime(2026, 11, 8, 9, 0);
+        final repo = InMemoryHouseholdRepository(initialClock: fixedNow);
+        addTearDown(repo.dispose);
+
+        // Cold start #1 on an unbound device
+        final vm1 = FeederViewModel(
+          repository: repo,
+          widgetSyncService: WidgetSyncService(),
+          scoopHolderStore: store1,
+          clock: () => fixedNow,
+        );
+        await _flushMicrotasks();
+
+        expect(vm1.isDeviceBound, isFalse);
+        expect(vm1.needsScoopHolderPrompt, isTrue);
+
+        // User picks Ashley in the prompt
+        await vm1.bindScoopHolder(
+          uid: InMemoryHouseholdRepository.ashleyUid,
+          name: 'Ashley',
+        );
+        await _flushMicrotasks();
+
+        expect(vm1.isDeviceBound, isTrue);
+        expect(vm1.needsScoopHolderPrompt, isFalse);
+        expect(vm1.currentMemberName, equals('Ashley'));
+        expect(vm1.currentMemberUid, equals(InMemoryHouseholdRepository.ashleyUid));
+        expect(store1.getMemberName(), equals('Ashley'));
+        vm1.dispose();
+
+        // Cold start #2 with fresh SharedPreferencesScoopHolderStore & ViewModel
+        final store2 = SharedPreferencesScoopHolderStore(prefs);
+        final vm2 = FeederViewModel(
+          repository: repo,
+          widgetSyncService: WidgetSyncService(),
+          scoopHolderStore: store2,
+          clock: () => fixedNow,
+        );
+        await _flushMicrotasks();
+
+        expect(vm2.isDeviceBound, isTrue);
+        expect(vm2.needsScoopHolderPrompt, isFalse);
+        expect(vm2.currentMemberName, equals('Ashley'));
+        expect(vm2.currentMemberUid, equals(InMemoryHouseholdRepository.ashleyUid));
+
+        // Feeding logs as Ashley, NOT reset to Keni
+        await vm2.markPetFed();
+        await _flushMicrotasks();
+        expect(vm2.currentWindowFeeding?.fedByName, equals('Ashley'));
+        vm2.dispose();
+      },
+    );
+
+    test(
+      'non-InMemory repository keeps auth UID anchored, syncs members[uid].name, and never clobbers on cold start',
+      () async {
+        final fixedNow = DateTime(2026, 11, 8, 9, 30);
+        final inner = InMemoryHouseholdRepository(initialClock: fixedNow);
+        final controlled = _ControllableHouseholdRepository(inner);
+        final store = InMemoryScoopHolderStore();
+        addTearDown(inner.dispose);
+
+        const deviceAuthUid = 'firebase_anon_ashley_uid';
+
+        // Cold start #1 on unbound device with Firebase-like repository
+        final vm1 = FeederViewModel(
+          repository: controlled,
+          widgetSyncService: WidgetSyncService(),
+          scoopHolderStore: store,
+          initialMemberUid: deviceAuthUid,
+          clock: () => fixedNow,
+        );
+        await _flushMicrotasks();
+        expect(vm1.needsScoopHolderPrompt, isTrue);
+        expect(controlled.updateMemberNameCalls, equals(0));
+
+        // Bind to Ashley -> syncs households/{id}.members[deviceAuthUid].name = 'Ashley'
+        await vm1.bindScoopHolder(
+          uid: InMemoryHouseholdRepository.ashleyUid,
+          name: 'Ashley',
+        );
+        await _flushMicrotasks();
+
+        expect(vm1.currentMemberUid, equals(deviceAuthUid));
+        expect(vm1.currentMemberName, equals('Ashley'));
+        expect(controlled.updateMemberNameCalls, equals(1));
+        expect(
+          vm1.household?.members[deviceAuthUid]?.name,
+          equals('Ashley'),
+        );
+        vm1.dispose();
+
+        // Cold start #2: member already exists in household; NO cold-start clobber write!
+        final callsBeforeRestart = controlled.updateMemberNameCalls;
+        final vm2 = FeederViewModel(
+          repository: controlled,
+          widgetSyncService: WidgetSyncService(),
+          scoopHolderStore: store,
+          initialMemberUid: deviceAuthUid,
+          clock: () => fixedNow,
+        );
+        await _flushMicrotasks();
+
+        expect(vm2.isDeviceBound, isTrue);
+        expect(vm2.currentMemberName, equals('Ashley'));
+        expect(vm2.currentMemberUid, equals(deviceAuthUid));
+        expect(controlled.updateMemberNameCalls, equals(callsBeforeRestart));
+        expect(
+          vm2.household?.members[deviceAuthUid]?.name,
+          equals('Ashley'),
+        );
+        vm2.dispose();
+      },
+    );
+
+    test(
+      'cold-start NFC /tap on unbound device waits for Scoop Holder binding before logging meal',
+      () async {
+        final fixedNow = DateTime(2026, 11, 8, 8, 30);
+        final repo = InMemoryHouseholdRepository(initialClock: fixedNow);
+        final store = InMemoryScoopHolderStore();
+        final vm = FeederViewModel(
+          repository: repo,
+          widgetSyncService: WidgetSyncService(),
+          scoopHolderStore: store,
+          clock: () => fixedNow,
+        );
+        addTearDown(() {
+          vm.dispose();
+          repo.dispose();
+        });
+        await _flushMicrotasks();
+
+        // Launch via NFC /tap while unbound -> waits for binding rather than logging as Keni
+        final tapFuture = vm.handleIncomingUri(
+          Uri.parse('https://whofedsnoop.com/tap/household_snoop_01'),
+        );
+        await _flushMicrotasks();
+        expect(vm.isCurrentWindowFed, isFalse);
+
+        // User answers prompt as Ashley -> /tap immediately logs Breakfast as Ashley!
+        await vm.bindScoopHolder(
+          uid: InMemoryHouseholdRepository.ashleyUid,
+          name: 'Ashley',
+        );
+        await tapFuture;
+        await _flushMicrotasks();
+
+        expect(vm.isCurrentWindowFed, isTrue);
+        expect(vm.currentWindowFeeding?.fedByName, equals('Ashley'));
       },
     );
   });

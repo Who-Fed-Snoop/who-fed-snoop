@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-import '../../../../data/repositories/household_repository.dart';
 import '../../../../domain/models/feeding_event.dart';
 import '../../../../domain/models/household.dart';
 import '../../../../domain/models/meal_window.dart';
@@ -8,6 +7,7 @@ import '../../../../domain/models/treat_event.dart';
 import '../../../core/app_theme.dart';
 import '../../../core/snoop_mascot.dart';
 import '../../onboarding/views/onboarding_sheet.dart';
+import '../../onboarding/views/scoop_holder_prompt_dialog.dart';
 import '../../settings/views/household_settings_sheet.dart';
 import '../../treats/views/treat_jar_card.dart';
 import '../view_models/feeder_view_model.dart';
@@ -15,23 +15,89 @@ import '../view_models/feeder_view_model.dart';
 /// Main single-screen view designed around the "2-Second Rule":
 /// 1. Glance immediately at Snoop's current meal window & daily treat jar state.
 /// 2. Tap once to mark Snoop fed or log a treat and notify your partner.
-class FeederView extends StatelessWidget {
+class FeederView extends StatefulWidget {
   const FeederView({super.key, required this.viewModel});
 
   final FeederViewModel viewModel;
 
   static const Key heroFeedButtonKey = Key('hero_feed_button');
   static const Key undoFeedButtonKey = Key('undo_feed_button');
-  static const Key simulatePartnerButtonKey = Key('simulate_partner_button');
   static const Key toggleHistoryButtonKey = Key('toggle_history_button');
   static const Key openScheduleButtonKey = Key('open_schedule_button');
+  static const Key openPackHqButtonKey = Key('open_pack_hq_button');
   static const Key bonusMealButtonKey = Key('bonus_meal_button');
   static const Key errorBannerKey = Key('feeder_error_banner');
   static const Key dismissErrorButtonKey = Key('dismiss_error_button');
-  static const Key customPersonaChipKey = Key('active_custom_persona_chip');
   static const Key historyFilterAllKey = Key('history_filter_all');
   static const Key historyFilterMealsKey = Key('history_filter_meals');
   static const Key historyFilterTreatsKey = Key('history_filter_treats');
+
+  @override
+  State<FeederView> createState() => _FeederViewState();
+}
+
+class _FeederViewState extends State<FeederView> {
+  bool _isScoopPromptOpen = false;
+  bool _promptCheckScheduled = false;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.viewModel.addListener(_handleViewModelChanged);
+    _schedulePromptCheck();
+  }
+
+  @override
+  void didUpdateWidget(covariant FeederView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.viewModel != widget.viewModel) {
+      oldWidget.viewModel.removeListener(_handleViewModelChanged);
+      widget.viewModel.addListener(_handleViewModelChanged);
+      _schedulePromptCheck();
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.viewModel.removeListener(_handleViewModelChanged);
+    super.dispose();
+  }
+
+  void _handleViewModelChanged() {
+    if (widget.viewModel.needsScoopHolderPrompt && !_isScoopPromptOpen) {
+      _schedulePromptCheck();
+    }
+  }
+
+  void _schedulePromptCheck() {
+    if (_promptCheckScheduled) return;
+    _promptCheckScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _promptCheckScheduled = false;
+      _maybeShowScoopHolderPrompt();
+    });
+  }
+
+  Future<void> _maybeShowScoopHolderPrompt() async {
+    if (!mounted ||
+        _isScoopPromptOpen ||
+        widget.viewModel.isLoading ||
+        widget.viewModel.household == null ||
+        !widget.viewModel.needsScoopHolderPrompt) {
+      return;
+    }
+
+    _isScoopPromptOpen = true;
+    try {
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => ScoopHolderPromptDialog(viewModel: widget.viewModel),
+      );
+    } finally {
+      _isScoopPromptOpen = false;
+    }
+  }
 
   void _openHouseholdSettings(BuildContext context, Household household) {
     showModalBottomSheet<bool>(
@@ -40,10 +106,10 @@ class FeederView extends StatelessWidget {
       backgroundColor: Colors.transparent,
       builder: (_) => HouseholdSettingsSheet(
         petName: household.petName,
-        initialSchedule: viewModel.schedule,
-        initialDailyTreatLimit: viewModel.dailyTreatLimit,
-        todayLoggedWindowIds: viewModel.todayLoggedWindowIds,
-        onSave: (schedule, dailyTreatLimit) => viewModel.updateHouseholdSettings(
+        initialSchedule: widget.viewModel.schedule,
+        initialDailyTreatLimit: widget.viewModel.dailyTreatLimit,
+        todayLoggedWindowIds: widget.viewModel.todayLoggedWindowIds,
+        onSave: (schedule, dailyTreatLimit) => widget.viewModel.updateHouseholdSettings(
           schedule: schedule,
           dailyTreatLimit: dailyTreatLimit,
         ),
@@ -53,6 +119,7 @@ class FeederView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final viewModel = widget.viewModel;
     return ListenableBuilder(
       listenable: viewModel,
       builder: (context, _) {
@@ -116,6 +183,7 @@ class FeederView extends StatelessWidget {
               Padding(
                 padding: const EdgeInsets.only(right: 14),
                 child: InkWell(
+                  key: FeederView.openPackHqButtonKey,
                   borderRadius: BorderRadius.circular(999),
                   onTap: () {
                     showModalBottomSheet<void>(
@@ -165,8 +233,6 @@ class FeederView extends StatelessWidget {
               ),
               children: <Widget>[
                 const SnoopTraitBadges(),
-                SizedBox(height: isCompactHeight ? 4 : 10),
-                _MemberSwitcherBar(viewModel: viewModel),
                 if (viewModel.errorMessage != null) ...<Widget>[
                   SizedBox(height: sectionGap),
                   _ErrorBanner(
@@ -248,101 +314,6 @@ class FeederView extends StatelessWidget {
           ),
         );
       },
-    );
-  }
-}
-
-class _MemberSwitcherBar extends StatelessWidget {
-  const _MemberSwitcherBar({required this.viewModel});
-
-  final FeederViewModel viewModel;
-
-  @override
-  Widget build(BuildContext context) {
-    final normalizedName = viewModel.currentMemberName.trim().toLowerCase();
-    final isKeni = normalizedName == 'keni';
-    final isAshley = normalizedName == 'ashley';
-    final isCustomOrSitter = !isKeni && !isAshley;
-    final partnerName = isKeni ? 'Ashley' : 'Keni';
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: AppTheme.comicCardDecoration(
-        color: AppTheme.creamCard,
-        borderRadius: 16,
-        borderWidth: 2,
-        shadowOffset: 2,
-      ),
-      child: Wrap(
-        spacing: 8,
-        runSpacing: 6,
-        alignment: WrapAlignment.spaceBetween,
-        crossAxisAlignment: WrapCrossAlignment.center,
-        children: <Widget>[
-          Wrap(
-            spacing: 6,
-            runSpacing: 4,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: <Widget>[
-              const Text(
-                '🥣 Scoop Holder:',
-                style: TextStyle(
-                  color: AppTheme.inkDark,
-                  fontWeight: FontWeight.w800,
-                  fontSize: 12,
-                ),
-              ),
-              ChoiceChip(
-                label: const Text('Keni'),
-                selected: isKeni,
-                visualDensity: VisualDensity.compact,
-                onSelected: (_) => viewModel.switchActiveMember(
-                  uid: InMemoryHouseholdRepository.keniUid,
-                  name: 'Keni',
-                ),
-              ),
-              ChoiceChip(
-                label: const Text('Ashley'),
-                selected: isAshley,
-                visualDensity: VisualDensity.compact,
-                onSelected: (_) => viewModel.switchActiveMember(
-                  uid: InMemoryHouseholdRepository.ashleyUid,
-                  name: 'Ashley',
-                ),
-              ),
-              if (isCustomOrSitter)
-                ChoiceChip(
-                  key: FeederView.customPersonaChipKey,
-                  label: Text(
-                    viewModel.isSitterMode ? '🐾 Dog Sitter' : viewModel.currentMemberName,
-                  ),
-                  selected: true,
-                  visualDensity: VisualDensity.compact,
-                  onSelected: (_) {},
-                ),
-            ],
-          ),
-          if (viewModel.canSimulatePartner)
-            OutlinedButton.icon(
-              key: FeederView.simulatePartnerButtonKey,
-              onPressed: viewModel.isLoggingMeal ? null : viewModel.simulatePartnerFeed,
-              style: OutlinedButton.styleFrom(
-                visualDensity: VisualDensity.compact,
-                side: const BorderSide(color: AppTheme.inkDark, width: 1.8),
-                foregroundColor: AppTheme.inkDark,
-                backgroundColor: AppTheme.snoopCollarGold.withValues(alpha: 0.25),
-              ),
-              icon: const Icon(Icons.notifications_active_outlined, size: 16),
-              label: Text(
-                'Simulate $partnerName Tap',
-                style: const TextStyle(
-                  fontWeight: FontWeight.w800,
-                  fontSize: 12,
-                ),
-              ),
-            ),
-        ],
-      ),
     );
   }
 }

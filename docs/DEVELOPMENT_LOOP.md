@@ -17,7 +17,7 @@ Canonical build, test, release, and deploy reference. Auto-synced with stack cha
 | **Deploy Firebase** | `firebase deploy --only firestore,hosting --project who-fed-snoop` |
 
 ## 1. Stack & Toolchain
-- **App:** Flutter (Stable), Dart `^3.5.0` (`pubspec.yaml`, `lib/main.dart`)
+- **App:** Flutter (Stable), Dart `^3.5.0` (`pubspec.yaml`, `lib/main.dart`), local device persistence via `shared_preferences` (`ScoopHolderStore`)
 - **Lint/Format:** `flutter_lints: ^5.0.0`, strict casts/inference/raw-types, `page_width: 100`, `trailing_commas: preserve` (`analysis_options.yaml`)
 - **Firebase (`who-fed-snoop`):** Anonymous Auth, Firestore (`nam5`, `firestore.rules`, `firestore.indexes.json`), Hosting (`build/web`, `firebase.json`)
 - **Functions (`functions/`):** Firebase Functions v2, Node 20, TypeScript `^5.6.0` (`cd functions && npm install && npm run build`)
@@ -39,10 +39,10 @@ Targeted runs: `flutter test test/domain/`, `flutter test test/data/`, `flutter 
 | File | Coverage |
 | :--- | :--- |
 | `test/domain/meal_window_test.dart` | Default/custom schedules, overnight cutoffs, logical dates, `/join`, `/tap`, `/s` deep links |
-| `test/data/household_repository_test.dart` | Household CRUD, deterministic meal IDs, custom schedules, treat tracking |
-| `test/data/feeder_view_model_test.dart` | Non-clobbering 10s LIFO Undo across meals & treats, optimistic state, errors |
-| `test/ui/feeder_view_test.dart` | 1-tap feed, Undo, partner banner, 7-day filters, schedule edits, `360×800`–`412×915` layout |
-| `test/ui/onboarding_sheet_test.dart` | Pack HQ modal, persona init, `50/40/6` bounds, double-tap guards, overflow checks |
+| `test/data/household_repository_test.dart` | Household CRUD, deterministic meal IDs, custom schedules, treat tracking, member name sync |
+| `test/data/feeder_view_model_test.dart` | Non-clobbering 10s LIFO Undo across meals & treats, Scoop Holder persistence & non-clobbering sync, optimistic state, errors |
+| `test/ui/feeder_view_test.dart` | 1-tap feed, Undo, unbound *"Who holds this phone?"* prompt & cold-restart persistence, partner banner, 7-day filters, schedule edits, `360×640`–`412×915` layout |
+| `test/ui/onboarding_sheet_test.dart` | Pack HQ modal, Scoop Holder switching, persona init, `50/40/6` bounds, double-tap guards, overflow checks |
 | `test/ui/treats_and_schedule_ui_test.dart` | `TreatJarCard`, `CustomTreatSheet`, Chonk Alert, treat drawer delete, `HouseholdSettingsSheet` |
 
 **UI invariants:** Finite animations only (`AnimatedSwitcher`/`AnimatedContainer` so `pumpAndSettle()` never hangs); zero `RenderFlex` overflow at `360×800` and compact height `<680`.

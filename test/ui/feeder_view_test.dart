@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:who_fed_snoop/data/repositories/household_repository.dart';
+import 'package:who_fed_snoop/data/services/scoop_holder_store.dart';
 import 'package:who_fed_snoop/data/services/widget_sync_service.dart';
 import 'package:who_fed_snoop/domain/models/meal_window.dart';
 import 'package:who_fed_snoop/domain/models/treat_event.dart';
@@ -9,6 +11,7 @@ import 'package:who_fed_snoop/ui/core/snoop_mascot.dart';
 import 'package:who_fed_snoop/ui/features/feeder/view_models/feeder_view_model.dart';
 import 'package:who_fed_snoop/ui/features/feeder/views/feeder_view.dart';
 import 'package:who_fed_snoop/ui/features/onboarding/views/onboarding_sheet.dart';
+import 'package:who_fed_snoop/ui/features/onboarding/views/scoop_holder_prompt_dialog.dart';
 import 'package:who_fed_snoop/ui/features/settings/views/household_settings_sheet.dart';
 import 'package:who_fed_snoop/ui/features/treats/views/treat_jar_card.dart';
 
@@ -100,9 +103,13 @@ void main() {
 
       expect(find.text('Snoop needs Dinner'), findsOneWidget);
 
-      // Simulate Ashley tapping "I Fed Snoop" on her phone
-      await tester.tap(find.byKey(FeederView.simulatePartnerButtonKey));
+      // Simulate Ashley tapping "I Fed Snoop" from Pack HQ demo controls
+      await tester.tap(find.byKey(FeederView.openPackHqButtonKey));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(OnboardingSheet.simulatePartnerButtonKey));
       await tester.pump();
+      Navigator.of(tester.element(find.byType(OnboardingSheet))).pop();
+      await tester.pumpAndSettle();
 
       expect(find.text('✅ Snoop is Fed!'), findsOneWidget);
       expect(find.textContaining('Ashley fed Snoop Dinner'), findsWidgets);
@@ -143,19 +150,29 @@ void main() {
       expect(viewModel.currentMemberName, equals('Dog Sitter'));
       expect(find.textContaining('Dog Sitter Guest Pass active'), findsOneWidget);
 
-      // Verify Dog Sitter gets its own selected chip while neither Keni nor Ashley is falsely selected (#12 Bug 7A)
+      // Main screen stays free of Scoop Holder switcher chips (no accidental taps)
+      expect(find.byKey(OnboardingSheet.keniPersonaChipKey), findsNothing);
+      expect(find.byKey(OnboardingSheet.ashleyPersonaChipKey), findsNothing);
+
+      // Verify Dog Sitter gets its own selected chip inside Pack HQ while neither Keni nor Ashley is falsely selected (#12 Bug 7A)
+      await tester.tap(find.byKey(FeederView.openPackHqButtonKey));
+      await tester.pumpAndSettle();
+
       final customChip = tester.widget<ChoiceChip>(
-        find.byKey(FeederView.customPersonaChipKey),
+        find.byKey(OnboardingSheet.customPersonaChipKey),
       );
       expect(customChip.selected, isTrue);
       final ashleyChip = tester.widget<ChoiceChip>(
-        find.widgetWithText(ChoiceChip, 'Ashley'),
+        find.byKey(OnboardingSheet.ashleyPersonaChipKey),
       );
       final keniChip = tester.widget<ChoiceChip>(
-        find.widgetWithText(ChoiceChip, 'Keni'),
+        find.byKey(OnboardingSheet.keniPersonaChipKey),
       );
       expect(ashleyChip.selected, isFalse);
       expect(keniChip.selected, isFalse);
+
+      Navigator.of(tester.element(find.byType(OnboardingSheet))).pop();
+      await tester.pumpAndSettle();
 
       // 2. Trigger NFC / Widget 1-tap feed link (/tap/household_snoop_01)
       await viewModel.handleIncomingUri(
@@ -621,6 +638,84 @@ void main() {
 
         // Drain 10s Undo timer cleanly before next iteration / teardown
         await tester.pump(const Duration(seconds: 10));
+      }
+    },
+  );
+
+  testWidgets(
+    'Unbound device prompts "Who holds this phone?" once, persists Ashley across cold restart, and renders cleanly at 360x640 & 360x800',
+    (WidgetTester tester) async {
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+
+      // Test prompt validation + overflow at compact height <680 (360x640) and 360x800
+      for (final size in const <Size>[Size(360, 640), Size(360, 800)]) {
+        tester.view.physicalSize = size;
+        tester.view.devicePixelRatio = 1.0;
+
+        SharedPreferences.setMockInitialValues(<String, Object>{});
+        final prefs = await SharedPreferences.getInstance();
+        final store = SharedPreferencesScoopHolderStore(prefs);
+        final fixedNow = DateTime(2026, 11, 8, 9, 30);
+        final repo = InMemoryHouseholdRepository(initialClock: fixedNow);
+        addTearDown(repo.dispose);
+
+        final vm1 = FeederViewModel(
+          repository: repo,
+          widgetSyncService: WidgetSyncService(),
+          scoopHolderStore: store,
+          clock: () => fixedNow,
+        );
+        addTearDown(vm1.dispose);
+
+        await tester.pumpWidget(
+          WhoFedSnoopApp(key: ValueKey<String>('cold_1_$size'), viewModel: vm1),
+        );
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+
+        // Prompt appears once on unbound device
+        expect(find.byKey(ScoopHolderPromptDialog.dialogKey), findsOneWidget);
+        expect(find.text('Who holds this phone?'), findsOneWidget);
+
+        // Empty custom submit shows inline validation error without overflow
+        await tester.tap(find.byKey(ScoopHolderPromptDialog.customSubmitButtonKey));
+        await tester.pumpAndSettle();
+        expect(find.byKey(ScoopHolderPromptDialog.errorTextKey), findsOneWidget);
+        expect(tester.takeException(), isNull);
+
+        // Ashley taps "🐾 Ashley" -> binds device & closes prompt cleanly
+        await tester.tap(find.byKey(ScoopHolderPromptDialog.ashleyButtonKey));
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(ScoopHolderPromptDialog.dialogKey), findsNothing);
+        expect(vm1.isDeviceBound, isTrue);
+        expect(vm1.currentMemberName, equals('Ashley'));
+        expect(find.textContaining('1 tap logs as Ashley'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+
+        // Cold restart with a fresh ViewModel reading the same SharedPreferences
+        final storeAfterRestart = SharedPreferencesScoopHolderStore(prefs);
+        final vm2 = FeederViewModel(
+          repository: repo,
+          widgetSyncService: WidgetSyncService(),
+          scoopHolderStore: storeAfterRestart,
+          clock: () => fixedNow,
+        );
+        addTearDown(vm2.dispose);
+
+        await tester.pumpWidget(
+          WhoFedSnoopApp(key: ValueKey<String>('cold_2_$size'), viewModel: vm2),
+        );
+        await tester.pumpAndSettle();
+
+        // Never re-prompts on bound cold start, and keeps Ashley as active Scoop Holder
+        expect(find.byKey(ScoopHolderPromptDialog.dialogKey), findsNothing);
+        expect(vm2.currentMemberName, equals('Ashley'));
+        expect(find.textContaining('1 tap logs as Ashley'), findsOneWidget);
+        expect(tester.takeException(), isNull);
       }
     },
   );

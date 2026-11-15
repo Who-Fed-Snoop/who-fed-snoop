@@ -4,9 +4,11 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'data/repositories/firestore_household_repository.dart';
 import 'data/repositories/household_repository.dart';
+import 'data/services/scoop_holder_store.dart';
 import 'data/services/widget_sync_service.dart';
 import 'firebase_options.dart';
 import 'ui/core/app_theme.dart';
@@ -26,12 +28,39 @@ const bool _forceInMemoryRepo = bool.fromEnvironment(
   defaultValue: false,
 );
 
+String _resolveInitialInMemoryUid({
+  required String? savedUid,
+  required String? savedName,
+}) {
+  if (savedUid != null && savedUid.trim().isNotEmpty) {
+    return savedUid.trim();
+  }
+  if (savedName?.trim().toLowerCase() == 'ashley') {
+    return InMemoryHouseholdRepository.ashleyUid;
+  }
+  return InMemoryHouseholdRepository.keniUid;
+}
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  ScoopHolderStore scoopHolderStore;
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    scoopHolderStore = SharedPreferencesScoopHolderStore(prefs);
+  } on Object {
+    scoopHolderStore = InMemoryScoopHolderStore();
+  }
+
+  final savedMemberName = scoopHolderStore.getMemberName();
+  final savedMemberUid = scoopHolderStore.getMemberUid();
+
   final widgetSyncService = WidgetSyncService();
   HouseholdRepository repository;
-  var initialMemberUid = InMemoryHouseholdRepository.keniUid;
+  var initialMemberUid = _resolveInitialInMemoryUid(
+    savedUid: savedMemberUid,
+    savedName: savedMemberName,
+  );
 
   if (_forceInMemoryRepo) {
     repository = InMemoryHouseholdRepository();
@@ -55,19 +84,25 @@ Future<void> main() async {
       final firestoreRepo = FirestoreHouseholdRepository();
       await firestoreRepo.ensureDefaultHousehold(
         memberUid: initialMemberUid,
-        memberName: 'Keni',
+        memberName: savedMemberName,
       );
       repository = firestoreRepo;
     } on Object {
       // Fallback to in-memory repository if running offline or without Firebase platform support
       repository = InMemoryHouseholdRepository();
+      initialMemberUid = _resolveInitialInMemoryUid(
+        savedUid: savedMemberUid,
+        savedName: savedMemberName,
+      );
     }
   }
 
   final viewModel = FeederViewModel(
     repository: repository,
     widgetSyncService: widgetSyncService,
+    scoopHolderStore: scoopHolderStore,
     initialMemberUid: initialMemberUid,
+    initialMemberName: savedMemberName ?? 'Keni',
   );
 
   // Connect Android App Links / NFC / Home Screen Widget button & Web URL routing

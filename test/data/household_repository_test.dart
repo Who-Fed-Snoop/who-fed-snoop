@@ -301,4 +301,53 @@ void main() {
       },
     );
   });
+
+  group('InMemoryHouseholdRepository — Member Display Name Sync (FB-001)', () {
+    test(
+      'updateMemberName registers new member, updates existing member preserving joinedAt, and rejects unknown household',
+      () async {
+        final seedNow = DateTime(2026, 11, 8, 9, 0);
+        final repo = InMemoryHouseholdRepository(initialClock: seedNow);
+        addTearDown(repo.dispose);
+
+        const hId = InMemoryHouseholdRepository.defaultHouseholdId;
+        final initial = (await repo.watchHousehold(hId).first)!;
+        final originalJoinedAt = initial.members[InMemoryHouseholdRepository.ashleyUid]!.joinedAt;
+
+        // 1. Update existing member preserves joinedAt and updates name (sanitized & capped at 50)
+        final updatedExisting = await repo.updateMemberName(
+          householdId: hId,
+          memberUid: InMemoryHouseholdRepository.ashleyUid,
+          memberName: '  Ashley Keni  ',
+        );
+        final ashleyMember = updatedExisting.members[InMemoryHouseholdRepository.ashleyUid]!;
+        expect(ashleyMember.name, equals('Ashley Keni'));
+        expect(ashleyMember.joinedAt, equals(originalJoinedAt));
+
+        // 2. Register a previously unknown device UID without clobbering existing members
+        final longName = 'X' * 65;
+        final addedMember = await repo.updateMemberName(
+          householdId: hId,
+          memberUid: 'uid_anon_device_2',
+          memberName: longName,
+        );
+        expect(addedMember.members['uid_anon_device_2']?.name.length, equals(50));
+        expect(addedMember.members[InMemoryHouseholdRepository.keniUid]?.name, equals('Keni'));
+        expect(
+          addedMember.members[InMemoryHouseholdRepository.ashleyUid]?.name,
+          equals('Ashley Keni'),
+        );
+
+        // 3. Rejects nonexistent household
+        await expectLater(
+          repo.updateMemberName(
+            householdId: 'missing_household',
+            memberUid: 'uid_anon_device_2',
+            memberName: 'Ashley',
+          ),
+          throwsStateError,
+        );
+      },
+    );
+  });
 }

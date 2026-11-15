@@ -37,6 +37,13 @@ abstract class HouseholdRepository {
     required String memberName,
   });
 
+  /// Registers or updates [memberUid]'s display name in `households/{id}.members`.
+  Future<Household> updateMemberName({
+    required String householdId,
+    required String memberUid,
+    required String memberName,
+  });
+
   /// Updates household configuration (`schedule`, `dailyTreatLimit`, `petName`).
   Future<Household> updateHouseholdSettings({
     required String householdId,
@@ -294,6 +301,44 @@ class InMemoryHouseholdRepository implements HouseholdRepository {
     final updated = existing.copyWith(members: updatedMembers);
     _households[existing.id] = updated;
     _changeController.add(existing.id);
+    return updated;
+  }
+
+  @override
+  Future<Household> updateMemberName({
+    required String householdId,
+    required String memberUid,
+    required String memberName,
+  }) async {
+    final household = _households[householdId];
+    if (household == null) {
+      throw StateError('Household $householdId not found.');
+    }
+
+    final cleanName = _sanitizeName(memberName, fallback: 'Member', maxLength: 50);
+    final existingMember = household.members[memberUid];
+    if (existingMember != null && existingMember.name == cleanName) {
+      return household;
+    }
+
+    final updatedMember = existingMember != null
+        ? HouseholdMember(
+            uid: memberUid,
+            name: cleanName,
+            fcmToken: existingMember.fcmToken,
+            joinedAt: existingMember.joinedAt,
+          )
+        : HouseholdMember(
+            uid: memberUid,
+            name: cleanName,
+            joinedAt: DateTime.now(),
+          );
+
+    final updatedMembers = Map<String, HouseholdMember>.of(household.members)
+      ..[memberUid] = updatedMember;
+    final updated = household.copyWith(members: updatedMembers);
+    _households[householdId] = updated;
+    _changeController.add(householdId);
     return updated;
   }
 
