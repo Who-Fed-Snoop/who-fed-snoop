@@ -90,6 +90,7 @@ Before sharing `whofedsnoop.com` publicly or submitting to Google Play / Apple A
 | **Inactive GitHub Actions workflow & 0 backend tests** | [`scripts/github-ci-workflow.yml`](../scripts/github-ci-workflow.yml), `test/` | CI YAML sits in `scripts/` instead of `.github/workflows/ci.yml`, so GitHub Actions does not execute it. Zero Firebase Emulator tests exist for the 546-line `firestore.rules`, `FirestoreHouseholdRepository`, or `functions/`. |
 | **`isPro` & monetization unwired** | [`household.dart`](../lib/domain/models/household.dart), [`firestore.rules`](../firestore.rules) | `isPro` exists on `Household` and is write-protected in `firestore.rules`, but no Tip Jar, One-Time Lifetime Pro IAP, or feature entitlement checks exist yet. |
 | **Minor doc-vs-code drift** | [`DESIGN_DIRECTION_AND_DECISIONS.md`](./DESIGN_DIRECTION_AND_DECISIONS.md) | Design doc cites `dailyTreatLimit` default `5`, preset calories `8c/65c/110c/40c`, and test filenames `treat_jar_card_test.dart` / `household_settings_sheet_test.dart`, whereas code uses default `4`, `15c/85c/120c/45c`, and consolidated [`test/ui/treats_and_schedule_ui_test.dart`](../test/ui/treats_and_schedule_ui_test.dart). |
+| **Monolithic files & duplicated repo policies** (`[FB-005]`) | [`feeder_view.dart`](../lib/ui/features/feeder/views/feeder_view.dart), [`feeder_view_model.dart`](../lib/ui/features/feeder/view_models/feeder_view_model.dart), [`snoop_mascot.dart`](../lib/ui/core/snoop_mascot.dart), `lib/data/repositories/` | Six UI/VM files span 788–1,268 lines (`FeederViewModel` mixes 6 responsibilities; UI files co-locate up to 12 classes; `InMemory` & `Firestore` repos duplicate join-code and state-recomputation logic), inflating LLM context token costs and parallel-agent merge contention. |
 
 ---
 
@@ -117,6 +118,7 @@ flowchart LR
 - **Triage Rule:** Whenever daily household dogfooding uncovers a bug, UX papercut, or idea, it is logged and deduplicated against §2–§4 first:
   - **Fix Now (`Dogfood Queue`):** Daily pain points or self-contained slices of Phases 0–4 that improve Keni & Ashley's live workflow right away.
   - **Phase-Linked (`Phase 0`–`Phase 4`):** Broader productization items cross-referenced inline below via `[FB-###]` tags.
+- **Token-Efficient Modularization (`[FB-005]` — Pre-Phase 0 Foundation):** Decompose 788–1,268L UI/ViewModel/painter monoliths and deduplicate `InMemory`/`Firestore` repository policies into focused ~150–350L single-responsibility files (thin `FeederViewModel` facade + Undo/DeepLink/Partner coordinators, feature `widgets/` slices, shared `HouseholdStatePolicy` + mapper) ahead of Phase 0–4 feature work to cut per-task token overhead and parallel-edit collisions.
 
 ---
 
