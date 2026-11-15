@@ -1,0 +1,11 @@
+{
+  "dev-docs-sync": {
+    "Stop": [
+      {
+        "type": "command",
+        "command": "../scripts/check-dev-docs-sync.sh --agy-stop-hook",
+        "timeout": 10
+      }
+    ]
+  }
+}

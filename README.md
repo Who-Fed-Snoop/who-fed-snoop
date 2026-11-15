@@ -8,6 +8,7 @@
 - **Original Vision, Product & Business Plan:** [docs/PROJECT_VISION_AND_PLAN.md](docs/PROJECT_VISION_AND_PLAN.md)
 - **UI Design Direction & Architectural Decisions:** [docs/DESIGN_DIRECTION_AND_DECISIONS.md](docs/DESIGN_DIRECTION_AND_DECISIONS.md)
 - **Productization Gap Analysis & Roadmap:** [docs/PRODUCTIZATION_GAPS_AND_ROADMAP.md](docs/PRODUCTIZATION_GAPS_AND_ROADMAP.md)
+- **Developer Loop (Build, Test, Release & Deploy):** [docs/DEVELOPMENT_LOOP.md](docs/DEVELOPMENT_LOOP.md)
 
 ---
 
@@ -102,16 +103,24 @@ You can program any standard **NTAG213, NTAG215, or NTAG216** NFC sticker from A
 
 ---
 
-## Getting Started
+## Development & Release Quickstart
+
+See **[docs/DEVELOPMENT_LOOP.md](docs/DEVELOPMENT_LOOP.md)** for the full developer loop (offline vs. Firebase Emulator vs. live modes, test suites, APK/web/macOS builds, GitHub Releases, and Firebase deploys).
 
 ```bash
-# 1. Install Flutter dependencies
+# 1. Install dependencies & git hooks
 flutter pub get
+./scripts/install-git-hooks.sh
 
-# 2. Run unit and widget tests
-flutter test
+# 2. Run locally ($0 offline in-memory mode, or omit flag for live Firebase)
+flutter run -d chrome --dart-define=USE_IN_MEMORY_REPO=true
 
-# 3. Run the app on Android or Chrome
-flutter run
+# 3. Format, lint, test & verify web release bundle
+dart format lib test
+./scripts/verify.sh
+
+# 4. Build Android split-ABI APKs & deploy web + Firestore rules
+flutter build apk --release --split-per-abi
+firebase deploy --only firestore,hosting --project who-fed-snoop
 ```
 
