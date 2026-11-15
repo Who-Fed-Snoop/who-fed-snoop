@@ -42,10 +42,8 @@ class TreatJarCard extends StatefulWidget {
 
   static const Key cardKey = ValueKey<String>('treat_jar_card');
   static const Key allowancePillKey = ValueKey<String>('treat_allowance_pill');
-  static const Key overLimitBannerKey =
-      ValueKey<String>('treat_over_limit_banner');
-  static const Key customTreatButtonKey =
-      ValueKey<String>('treat_custom_button');
+  static const Key overLimitBannerKey = ValueKey<String>('treat_over_limit_banner');
+  static const Key customTreatButtonKey = ValueKey<String>('treat_custom_button');
   static const Key drawerToggleKey = ValueKey<String>('treat_drawer_toggle');
 
   static ValueKey<String> presetChipKey(TreatPreset preset) =>
@@ -125,9 +123,7 @@ class _TreatJarCardState extends State<TreatJarCard> {
 
     final pillBgColor = isOverLimit
         ? AppTheme.snoopTonguePink.withValues(alpha: 0.30)
-        : (count > 0
-            ? AppTheme.fedSurface
-            : AppTheme.snoopCollarGold.withValues(alpha: 0.32));
+        : (count > 0 ? AppTheme.fedSurface : AppTheme.snoopCollarGold.withValues(alpha: 0.32));
 
     final pillText = isOverLimit
         ? '⚠️ $count / $limit TREATS • CHONK ALERT!'
@@ -263,8 +259,7 @@ class _TreatJarCardState extends State<TreatJarCard> {
                 key: TreatJarCard.customTreatButtonKey,
                 emoji: '✨',
                 label: '+ Custom',
-                backgroundColor:
-                    AppTheme.snoopCollarGold.withValues(alpha: 0.35),
+                backgroundColor: AppTheme.snoopCollarGold.withValues(alpha: 0.35),
                 onTap: _openCustomTreatSheet,
               ),
             ],
@@ -426,8 +421,7 @@ class _TodayTreatRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final qtyText = treat.quantity > 1 ? ' x${treat.quantity}' : '';
-    final notePart =
-        (treat.note != null && treat.note!.isNotEmpty) ? ' • "${treat.note}"' : '';
+    final notePart = (treat.note != null && treat.note!.isNotEmpty) ? ' • "${treat.note}"' : '';
 
     return Container(
       margin: const EdgeInsets.only(bottom: 6),
@@ -509,13 +503,11 @@ class CustomTreatSheet extends StatefulWidget {
   final OnLogCustomTreat onSubmit;
 
   static const Key labelFieldKey = ValueKey<String>('custom_treat_label_field');
-  static const Key caloriesFieldKey =
-      ValueKey<String>('custom_treat_calories_field');
+  static const Key caloriesFieldKey = ValueKey<String>('custom_treat_calories_field');
   static const Key noteFieldKey = ValueKey<String>('custom_treat_note_field');
   static const Key decrementQtyKey = ValueKey<String>('custom_treat_qty_dec');
   static const Key incrementQtyKey = ValueKey<String>('custom_treat_qty_inc');
-  static const Key submitButtonKey =
-      ValueKey<String>('custom_treat_submit_button');
+  static const Key submitButtonKey = ValueKey<String>('custom_treat_submit_button');
 
   @override
   State<CustomTreatSheet> createState() => _CustomTreatSheetState();
@@ -523,8 +515,7 @@ class CustomTreatSheet extends StatefulWidget {
 
 class _CustomTreatSheetState extends State<CustomTreatSheet> {
   final TextEditingController _labelController = TextEditingController();
-  final TextEditingController _caloriesController =
-      TextEditingController(text: '30');
+  final TextEditingController _caloriesController = TextEditingController(text: '30');
   final TextEditingController _noteController = TextEditingController();
 
   int _quantity = 1;
@@ -552,8 +543,7 @@ class _CustomTreatSheetState extends State<CustomTreatSheet> {
     }
 
     final rawCalories = _caloriesController.text.trim();
-    final parsedCalories =
-        rawCalories.isEmpty ? 30 : int.tryParse(rawCalories);
+    final parsedCalories = rawCalories.isEmpty ? 30 : int.tryParse(rawCalories);
     if (parsedCalories == null || parsedCalories < 0 || parsedCalories > 2000) {
       setState(() {
         _localError = 'Calories per treat must be between 0 and 2000.';
@@ -693,9 +683,7 @@ class _CustomTreatSheetState extends State<CustomTreatSheet> {
                       const SizedBox(width: 8),
                       IconButton(
                         key: CustomTreatSheet.decrementQtyKey,
-                        onPressed: _quantity > 1
-                            ? () => setState(() => _quantity -= 1)
-                            : null,
+                        onPressed: _quantity > 1 ? () => setState(() => _quantity -= 1) : null,
                         visualDensity: VisualDensity.compact,
                         icon: const Icon(Icons.remove_circle_outline),
                       ),
@@ -709,9 +697,7 @@ class _CustomTreatSheetState extends State<CustomTreatSheet> {
                       ),
                       IconButton(
                         key: CustomTreatSheet.incrementQtyKey,
-                        onPressed: _quantity < 10
-                            ? () => setState(() => _quantity += 1)
-                            : null,
+                        onPressed: _quantity < 10 ? () => setState(() => _quantity += 1) : null,
                         visualDensity: VisualDensity.compact,
                         icon: const Icon(Icons.add_circle_outline),
                       ),

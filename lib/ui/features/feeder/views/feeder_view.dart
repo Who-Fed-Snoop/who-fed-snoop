@@ -43,11 +43,10 @@ class FeederView extends StatelessWidget {
         initialSchedule: viewModel.schedule,
         initialDailyTreatLimit: viewModel.dailyTreatLimit,
         todayLoggedWindowIds: viewModel.todayLoggedWindowIds,
-        onSave: (schedule, dailyTreatLimit) =>
-            viewModel.updateHouseholdSettings(
-              schedule: schedule,
-              dailyTreatLimit: dailyTreatLimit,
-            ),
+        onSave: (schedule, dailyTreatLimit) => viewModel.updateHouseholdSettings(
+          schedule: schedule,
+          dailyTreatLimit: dailyTreatLimit,
+        ),
       ),
     );
   }
@@ -193,8 +192,7 @@ class FeederView extends StatelessWidget {
                   activeMemberName: viewModel.currentMemberName,
                   onTapFeed: () => viewModel.markPetFed(),
                   onTapExtraMeal: () => viewModel.markPetFed(isExtraMeal: true),
-                  onOpenSchedule: () =>
-                      _openHouseholdSettings(context, household),
+                  onOpenSchedule: () => _openHouseholdSettings(context, household),
                 ),
                 if (viewModel.canUndo) ...<Widget>[
                   SizedBox(height: sectionGap),
@@ -231,8 +229,7 @@ class FeederView extends StatelessWidget {
                   onDeleteTreat: (treatId) {
                     viewModel.deleteTreat(treatId);
                   },
-                  onOpenSettings: () =>
-                      _openHouseholdSettings(context, household),
+                  onOpenSettings: () => _openHouseholdSettings(context, household),
                 ),
                 SizedBox(height: isCompactHeight ? 10 : 16),
                 _HomeWidgetPreviewCard(viewModel: viewModel),
@@ -317,9 +314,7 @@ class _MemberSwitcherBar extends StatelessWidget {
                 ChoiceChip(
                   key: FeederView.customPersonaChipKey,
                   label: Text(
-                    viewModel.isSitterMode
-                        ? '🐾 Dog Sitter'
-                        : viewModel.currentMemberName,
+                    viewModel.isSitterMode ? '🐾 Dog Sitter' : viewModel.currentMemberName,
                   ),
                   selected: true,
                   visualDensity: VisualDensity.compact,
@@ -330,8 +325,7 @@ class _MemberSwitcherBar extends StatelessWidget {
           if (viewModel.canSimulatePartner)
             OutlinedButton.icon(
               key: FeederView.simulatePartnerButtonKey,
-              onPressed:
-                  viewModel.isLoggingMeal ? null : viewModel.simulatePartnerFeed,
+              onPressed: viewModel.isLoggingMeal ? null : viewModel.simulatePartnerFeed,
               style: OutlinedButton.styleFrom(
                 visualDensity: VisualDensity.compact,
                 side: const BorderSide(color: AppTheme.inkDark, width: 1.8),
@@ -642,9 +636,7 @@ class _HeroStatusAndFeedCard extends StatelessWidget {
                 ),
               ),
               style: FilledButton.styleFrom(
-                visualDensity: isCompactHeight
-                    ? VisualDensity.compact
-                    : VisualDensity.standard,
+                visualDensity: isCompactHeight ? VisualDensity.compact : VisualDensity.standard,
                 padding: EdgeInsets.symmetric(
                   vertical: isCompactHeight ? 10 : 16,
                   horizontal: 16,
@@ -918,9 +910,7 @@ class _HomeWidgetPreviewCard extends StatelessWidget {
               ),
               if (!snapshot.isFed)
                 FilledButton.icon(
-                  onPressed: viewModel.isLoggingMeal
-                      ? null
-                      : () => viewModel.markPetFed(),
+                  onPressed: viewModel.isLoggingMeal ? null : () => viewModel.markPetFed(),
                   style: FilledButton.styleFrom(
                     backgroundColor: AppTheme.snoopCollarGold,
                     foregroundColor: AppTheme.inkDark,
@@ -1009,18 +999,14 @@ class _RecentHistorySectionState extends State<_RecentHistorySection> {
     // Group entries by logical date (descending date order).
     final groupedByDate = <String, List<_BellyLogEntry>>{};
     for (final entry in entries) {
-      groupedByDate
-          .putIfAbsent(entry.logicalDate, () => <_BellyLogEntry>[])
-          .add(entry);
+      groupedByDate.putIfAbsent(entry.logicalDate, () => <_BellyLogEntry>[]).add(entry);
     }
-    final sortedDates = groupedByDate.keys.toList()
-      ..sort((a, b) => b.compareTo(a));
+    final sortedDates = groupedByDate.keys.toList()..sort((a, b) => b.compareTo(a));
 
     // Precompute full-day meal & treat counts/kcal for rich daily headers.
     final mealCountByDate = <String, int>{};
     for (final meal in widget.mealEvents) {
-      mealCountByDate[meal.windowDate] =
-          (mealCountByDate[meal.windowDate] ?? 0) + 1;
+      mealCountByDate[meal.windowDate] = (mealCountByDate[meal.windowDate] ?? 0) + 1;
     }
     final treatUnitsByDate = <String, int>{};
     final treatCaloriesByDate = <String, int>{};
@@ -1082,16 +1068,14 @@ class _RecentHistorySectionState extends State<_RecentHistorySection> {
                 label: Text('🥣 Meals (${widget.mealEvents.length})'),
                 selected: _filter == _BellyLogFilter.meals,
                 visualDensity: VisualDensity.compact,
-                onSelected: (_) =>
-                    setState(() => _filter = _BellyLogFilter.meals),
+                onSelected: (_) => setState(() => _filter = _BellyLogFilter.meals),
               ),
               ChoiceChip(
                 key: FeederView.historyFilterTreatsKey,
                 label: Text('🦴 Treats (${widget.treatEvents.length})'),
                 selected: _filter == _BellyLogFilter.treats,
                 visualDensity: VisualDensity.compact,
-                onSelected: (_) =>
-                    setState(() => _filter = _BellyLogFilter.treats),
+                onSelected: (_) => setState(() => _filter = _BellyLogFilter.treats),
               ),
             ],
           ),
@@ -1238,9 +1222,8 @@ class _TreatHistoryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final qtyPrefix = treat.quantity > 1 ? '${treat.quantity}x ' : '';
-    final noteSuffix = (treat.note != null && treat.note!.trim().isNotEmpty)
-        ? ' • “${treat.note!.trim()}”'
-        : '';
+    final noteSuffix =
+        (treat.note != null && treat.note!.trim().isNotEmpty) ? ' • “${treat.note!.trim()}”' : '';
 
     return Container(
       margin: const EdgeInsets.only(bottom: 10),

@@ -128,9 +128,7 @@ class Household {
 
   /// Returns treats logged on [logicalDate], sorted newest-first.
   List<TreatEvent> treatsForDate(String logicalDate) {
-    final filtered = todayTreats
-        .where((t) => t.logicalDate == logicalDate)
-        .toList();
+    final filtered = todayTreats.where((t) => t.logicalDate == logicalDate).toList();
     filtered.sort((a, b) => b.givenAt.compareTo(a.givenAt));
     return List<TreatEvent>.unmodifiable(filtered);
   }

@@ -407,10 +407,8 @@ class MealSchedule {
       }
     }
 
-    final safeBreakfast =
-        (breakfastWin?.startHour ?? breakfastStartHour).clamp(0, 23);
-    final safeDinner =
-        (dinnerWin?.startHour ?? dinnerStartHour).clamp(0, 23);
+    final safeBreakfast = (breakfastWin?.startHour ?? breakfastStartHour).clamp(0, 23);
+    final safeDinner = (dinnerWin?.startHour ?? dinnerStartHour).clamp(0, 23);
 
     return <String, Object?>{
       'breakfastStartHour': safeBreakfast,
@@ -503,10 +501,9 @@ class ActiveMealWindow {
                         : period == MealPeriod.lateSnack
                             ? '🌙'
                             : '🐾'),
-        nextWindowLabel = nextWindowLabel ??
-            (period == MealPeriod.breakfast ? 'Dinner' : 'Breakfast'),
-        nextWindowEmoji = nextWindowEmoji ??
-            (period == MealPeriod.breakfast ? '🍖' : '🥣');
+        nextWindowLabel =
+            nextWindowLabel ?? (period == MealPeriod.breakfast ? 'Dinner' : 'Breakfast'),
+        nextWindowEmoji = nextWindowEmoji ?? (period == MealPeriod.breakfast ? '🍖' : '🥣');
 
   final MealPeriod period;
 

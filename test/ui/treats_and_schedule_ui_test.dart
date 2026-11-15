@@ -262,8 +262,7 @@ void main() {
           findsOneWidget,
         );
 
-        final initialDinnerToggle =
-            find.byKey(HouseholdSettingsSheet.windowToggleKey('dinner'));
+        final initialDinnerToggle = find.byKey(HouseholdSettingsSheet.windowToggleKey('dinner'));
         await tester.ensureVisible(initialDinnerToggle);
         await tester.tap(initialDinnerToggle);
         await tester.pump();
@@ -280,14 +279,12 @@ void main() {
         expect(saveCalls, equals(0));
 
         // Re-enable Breakfast & Dinner, add Lunch preset + 1 Custom Window
-        final breakfastSwitch =
-            find.byKey(HouseholdSettingsSheet.windowToggleKey('breakfast'));
+        final breakfastSwitch = find.byKey(HouseholdSettingsSheet.windowToggleKey('breakfast'));
         await tester.ensureVisible(breakfastSwitch);
         await tester.tap(breakfastSwitch);
         await tester.pump();
 
-        final dinnerSwitch =
-            find.byKey(HouseholdSettingsSheet.windowToggleKey('dinner'));
+        final dinnerSwitch = find.byKey(HouseholdSettingsSheet.windowToggleKey('dinner'));
         await tester.ensureVisible(dinnerSwitch);
         await tester.tap(dinnerSwitch);
         await tester.pump();
@@ -299,15 +296,13 @@ void main() {
         await tester.tap(addLunchChip);
         await tester.pump();
 
-        final addCustomChip =
-            find.byKey(HouseholdSettingsSheet.addCustomWindowButtonKey);
+        final addCustomChip = find.byKey(HouseholdSettingsSheet.addCustomWindowButtonKey);
         await tester.ensureVisible(addCustomChip);
         await tester.tap(addCustomChip);
         await tester.pump();
 
         // Customize Lunch label via edit dialog
-        final editLunchBtn =
-            find.byKey(HouseholdSettingsSheet.windowEditButtonKey('lunch'));
+        final editLunchBtn = find.byKey(HouseholdSettingsSheet.windowEditButtonKey('lunch'));
         await tester.ensureVisible(editLunchBtn);
         await tester.tap(editLunchBtn);
         await tester.pumpAndSettle();
@@ -333,8 +328,7 @@ void main() {
         await tester.pumpAndSettle();
 
         // Increment daily treat limit from 4 -> 5
-        final incTreatBtn =
-            find.byKey(HouseholdSettingsSheet.treatLimitIncrementKey);
+        final incTreatBtn = find.byKey(HouseholdSettingsSheet.treatLimitIncrementKey);
         await tester.ensureVisible(incTreatBtn);
         await tester.tap(incTreatBtn);
         await tester.pump();

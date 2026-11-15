@@ -350,8 +350,7 @@ void main() {
       expect(find.byKey(HouseholdSettingsSheet.sheetKey), findsOneWidget);
 
       // Verify adding a custom window defaults to 'Snack 1' (#24 §2)
-      final addCustomBtn =
-          find.byKey(HouseholdSettingsSheet.addCustomWindowButtonKey);
+      final addCustomBtn = find.byKey(HouseholdSettingsSheet.addCustomWindowButtonKey);
       await tester.ensureVisible(addCustomBtn);
       await tester.tap(addCustomBtn);
       await tester.pump();
@@ -365,8 +364,7 @@ void main() {
       await tester.tap(addLunchChip);
       await tester.pump();
 
-      final editLunchBtn =
-          find.byKey(HouseholdSettingsSheet.windowEditButtonKey('lunch'));
+      final editLunchBtn = find.byKey(HouseholdSettingsSheet.windowEditButtonKey('lunch'));
       await tester.ensureVisible(editLunchBtn);
       await tester.tap(editLunchBtn);
       await tester.pumpAndSettle();

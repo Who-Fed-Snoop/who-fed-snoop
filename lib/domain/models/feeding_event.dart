@@ -44,23 +44,18 @@ class FeedingEvent {
 
   /// Resolved human-readable label (`windowLabel ?? mealPeriod.label`).
   String get effectiveLabel =>
-      (windowLabel != null && windowLabel!.isNotEmpty)
-          ? windowLabel!
-          : mealPeriod.label;
+      (windowLabel != null && windowLabel!.isNotEmpty) ? windowLabel! : mealPeriod.label;
 
   /// Resolved display emoji (`windowEmoji ?? mealPeriod.emoji`).
   String get effectiveEmoji =>
-      (windowEmoji != null && windowEmoji!.isNotEmpty)
-          ? windowEmoji!
-          : mealPeriod.emoji;
+      (windowEmoji != null && windowEmoji!.isNotEmpty) ? windowEmoji! : mealPeriod.emoji;
 
   /// Matches whether this feeding satisfies the given [window].
   ///
   /// Bonus scoops (`isExtraMeal == true`) never satisfy a regular meal window.
   bool matchesWindow(ActiveMealWindow window) {
     if (isExtraMeal) return false;
-    return windowDate == window.windowDate &&
-        effectiveWindowId == window.windowId;
+    return windowDate == window.windowDate && effectiveWindowId == window.windowId;
   }
 
   Map<String, Object?> toJson() => <String, Object?>{
@@ -92,15 +87,9 @@ class FeedingEvent {
       fedByName: (json['fedByName'] as String?) ?? 'Someone',
       fedAt: parsedFedAt,
       isExtraMeal: (json['isExtraMeal'] as bool?) ?? false,
-      windowId: (rawWindowId != null && rawWindowId.isNotEmpty)
-          ? rawWindowId
-          : null,
-      windowLabel: (rawWindowLabel != null && rawWindowLabel.isNotEmpty)
-          ? rawWindowLabel
-          : null,
-      windowEmoji: (rawWindowEmoji != null && rawWindowEmoji.isNotEmpty)
-          ? rawWindowEmoji
-          : null,
+      windowId: (rawWindowId != null && rawWindowId.isNotEmpty) ? rawWindowId : null,
+      windowLabel: (rawWindowLabel != null && rawWindowLabel.isNotEmpty) ? rawWindowLabel : null,
+      windowEmoji: (rawWindowEmoji != null && rawWindowEmoji.isNotEmpty) ? rawWindowEmoji : null,
     );
   }
 

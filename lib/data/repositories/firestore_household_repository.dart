@@ -96,9 +96,7 @@ class FirestoreHouseholdRepository implements HouseholdRepository {
         .limit(limit)
         .snapshots()
         .map((query) {
-      final events = query.docs
-          .map((doc) => _feedingFromFirestore(doc.id, doc.data()))
-          .toList();
+      final events = query.docs.map((doc) => _feedingFromFirestore(doc.id, doc.data())).toList();
       events.sort((a, b) => b.fedAt.compareTo(a.fedAt));
       return events;
     });
@@ -116,9 +114,8 @@ class FirestoreHouseholdRepository implements HouseholdRepository {
         .limit(limit)
         .snapshots()
         .map((query) {
-      final treats = query.docs
-          .map((doc) => TreatEvent.fromJson(doc.data(), fallbackId: doc.id))
-          .toList();
+      final treats =
+          query.docs.map((doc) => TreatEvent.fromJson(doc.data(), fallbackId: doc.id)).toList();
       treats.sort((a, b) => b.givenAt.compareTo(a.givenAt));
       return treats;
     });
@@ -187,10 +184,7 @@ class FirestoreHouseholdRepository implements HouseholdRepository {
     required String memberName,
   }) async {
     final normalizedCode = joinCode.trim().toUpperCase();
-    final query = await _householdsRef
-        .where('joinCode', isEqualTo: normalizedCode)
-        .limit(1)
-        .get();
+    final query = await _householdsRef.where('joinCode', isEqualTo: normalizedCode).limit(1).get();
 
     if (query.docs.isEmpty) {
       throw StateError('No household found with code "$normalizedCode".');
@@ -242,8 +236,7 @@ class FirestoreHouseholdRepository implements HouseholdRepository {
       }
     }
 
-    if (dailyTreatLimit != null &&
-        (dailyTreatLimit < 1 || dailyTreatLimit > 50)) {
+    if (dailyTreatLimit != null && (dailyTreatLimit < 1 || dailyTreatLimit > 50)) {
       throw ArgumentError('Daily treat limit must be between 1 and 50.');
     }
 
@@ -400,8 +393,7 @@ class FirestoreHouseholdRepository implements HouseholdRepository {
         .limit(6)
         .get();
 
-    final updatedTodayMeals = Map<String, FeedingEvent>.of(household.todayMeals)
-      ..remove(feedingId);
+    final updatedTodayMeals = Map<String, FeedingEvent>.of(household.todayMeals)..remove(feedingId);
 
     final verifiedSubcollectionMeals = <FeedingEvent>[
       for (final doc in recentSnap.docs)
@@ -410,20 +402,16 @@ class FirestoreHouseholdRepository implements HouseholdRepository {
 
     final sortedCandidates = verifiedSubcollectionMeals.isNotEmpty
         ? verifiedSubcollectionMeals
-        : (updatedTodayMeals.values.toList()
-          ..sort((a, b) => b.fedAt.compareTo(a.fedAt)));
+        : (updatedTodayMeals.values.toList()..sort((a, b) => b.fedAt.compareTo(a.fedAt)));
 
-    final previousLatest =
-        sortedCandidates.isNotEmpty ? sortedCandidates.first : null;
+    final previousLatest = sortedCandidates.isNotEmpty ? sortedCandidates.first : null;
     final todayMealsPayload = _todayMealsToFirestoreMap(updatedTodayMeals);
 
     try {
       final batch = _firestore.batch();
       batch.delete(feedingDocRef);
       batch.update(householdDocRef, <String, Object?>{
-        'lastFeeding': previousLatest != null
-            ? _feedingToFirestoreMap(previousLatest)
-            : null,
+        'lastFeeding': previousLatest != null ? _feedingToFirestoreMap(previousLatest) : null,
         'todayMeals': todayMealsPayload,
       });
       await batch.commit();
@@ -435,14 +423,11 @@ class FirestoreHouseholdRepository implements HouseholdRepository {
       }
       // Fallback if security rules enforce `lastFeeding.fedByUid == request.auth.uid`:
       // keep `todayMeals` intact while restoring `lastFeeding` to caller's latest meal or null.
-      final ownPrevious = sortedCandidates
-          .where((m) => m.fedByUid == requestingUid)
-          .firstOrNull;
+      final ownPrevious = sortedCandidates.where((m) => m.fedByUid == requestingUid).firstOrNull;
       final fallbackBatch = _firestore.batch();
       fallbackBatch.delete(feedingDocRef);
       fallbackBatch.update(householdDocRef, <String, Object?>{
-        'lastFeeding':
-            ownPrevious != null ? _feedingToFirestoreMap(ownPrevious) : null,
+        'lastFeeding': ownPrevious != null ? _feedingToFirestoreMap(ownPrevious) : null,
         'todayMeals': todayMealsPayload,
       });
       await fallbackBatch.commit();
@@ -505,9 +490,7 @@ class FirestoreHouseholdRepository implements HouseholdRepository {
 
       transaction.set(treatDocRef, _treatToFirestoreMap(newTreat));
       transaction.update(householdDocRef, <String, Object?>{
-        'todayTreats': prunedTreats
-            .map(_treatToFirestoreMap)
-            .toList(growable: false),
+        'todayTreats': prunedTreats.map(_treatToFirestoreMap).toList(growable: false),
       });
 
       return newTreat;
@@ -565,8 +548,7 @@ class FirestoreHouseholdRepository implements HouseholdRepository {
     Map<String, FeedingEvent> todayMeals,
   ) {
     return todayMeals.map(
-      (key, event) =>
-          MapEntry<String, Object?>(key, _feedingToFirestoreMap(event)),
+      (key, event) => MapEntry<String, Object?>(key, _feedingToFirestoreMap(event)),
     );
   }
 
@@ -646,8 +628,7 @@ class FirestoreHouseholdRepository implements HouseholdRepository {
       }
     }
 
-    final dailyTreatLimit =
-        ((data['dailyTreatLimit'] as num?)?.toInt() ?? 4).clamp(1, 50);
+    final dailyTreatLimit = ((data['dailyTreatLimit'] as num?)?.toInt() ?? 4).clamp(1, 50);
 
     return Household(
       id: id,
@@ -687,11 +668,8 @@ class FirestoreHouseholdRepository implements HouseholdRepository {
   }
 
   String _generateJoinCode(String petName) {
-    final letters = petName
-        .toUpperCase()
-        .replaceAll(RegExp(r'[^A-Z]'), '')
-        .padRight(4, 'X')
-        .substring(0, 4);
+    final letters =
+        petName.toUpperCase().replaceAll(RegExp(r'[^A-Z]'), '').padRight(4, 'X').substring(0, 4);
     final digits = (Random().nextInt(90) + 10).toString();
     return '$letters$digits';
   }

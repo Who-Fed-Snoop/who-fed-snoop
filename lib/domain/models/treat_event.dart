@@ -140,8 +140,7 @@ class TreatEvent {
       emoji: (rawEmoji != null && rawEmoji.isNotEmpty) ? rawEmoji : preset.emoji,
       quantity: ((json['quantity'] as num?)?.toInt() ?? 1).clamp(1, 20),
       caloriesPerUnit:
-          ((json['caloriesPerUnit'] as num?)?.toInt() ?? preset.defaultCalories)
-              .clamp(0, 2000),
+          ((json['caloriesPerUnit'] as num?)?.toInt() ?? preset.defaultCalories).clamp(0, 2000),
       logicalDate: (json['logicalDate'] as String?) ?? '',
       givenByUid: (json['givenByUid'] as String?) ?? '',
       givenByName: (json['givenByName'] as String?) ?? 'Someone',
@@ -194,4 +193,3 @@ class TreatEvent {
         note,
       );
 }
-

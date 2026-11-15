@@ -94,13 +94,10 @@ class InMemoryHouseholdRepository implements HouseholdRepository {
   }
 
   final Map<String, Household> _households = <String, Household>{};
-  final Map<String, List<FeedingEvent>> _feedingsByHousehold =
-      <String, List<FeedingEvent>>{};
-  final Map<String, List<TreatEvent>> _treatsByHousehold =
-      <String, List<TreatEvent>>{};
+  final Map<String, List<FeedingEvent>> _feedingsByHousehold = <String, List<FeedingEvent>>{};
+  final Map<String, List<TreatEvent>> _treatsByHousehold = <String, List<TreatEvent>>{};
 
-  final StreamController<String> _changeController =
-      StreamController<String>.broadcast();
+  final StreamController<String> _changeController = StreamController<String>.broadcast();
 
   static const String defaultHouseholdId = 'household_snoop_01';
   static const String defaultJoinCode = 'SNOOP4';
@@ -323,8 +320,7 @@ class InMemoryHouseholdRepository implements HouseholdRepository {
       }
     }
 
-    if (dailyTreatLimit != null &&
-        (dailyTreatLimit < 1 || dailyTreatLimit > 50)) {
+    if (dailyTreatLimit != null && (dailyTreatLimit < 1 || dailyTreatLimit > 50)) {
       throw ArgumentError('Daily treat limit must be between 1 and 50.');
     }
 
@@ -437,8 +433,7 @@ class InMemoryHouseholdRepository implements HouseholdRepository {
       list.sort((a, b) => b.fedAt.compareTo(a.fedAt));
     }
 
-    final updatedTodayMeals = Map<String, FeedingEvent>.of(household.todayMeals)
-      ..remove(feedingId);
+    final updatedTodayMeals = Map<String, FeedingEvent>.of(household.todayMeals)..remove(feedingId);
 
     final candidates = <String, FeedingEvent>{
       for (final m in updatedTodayMeals.values) m.id: m,
@@ -483,8 +478,7 @@ class InMemoryHouseholdRepository implements HouseholdRepository {
     );
 
     final logicalDate = household.schedule.logicalDateFor(now);
-    final treatId =
-        'treat_${logicalDate}_${now.millisecondsSinceEpoch}_${nextUniqueSuffix()}';
+    final treatId = 'treat_${logicalDate}_${now.millisecondsSinceEpoch}_${nextUniqueSuffix()}';
 
     final newTreat = TreatEvent(
       id: treatId,
@@ -552,9 +546,7 @@ class InMemoryHouseholdRepository implements HouseholdRepository {
   ) {
     final recent = meals.values
         .where(
-          (e) =>
-              !e.isExtraMeal &&
-              referenceNow.difference(e.fedAt) <= const Duration(hours: 48),
+          (e) => !e.isExtraMeal && referenceNow.difference(e.fedAt) <= const Duration(hours: 48),
         )
         .toList()
       ..sort((a, b) => b.fedAt.compareTo(a.fedAt));
@@ -576,8 +568,7 @@ class InMemoryHouseholdRepository implements HouseholdRepository {
     final seenIds = <String>{};
     final filtered = <TreatEvent>[];
     for (final treat in treats) {
-      if ((treat.logicalDate == activeLogicalDate ||
-              treat.logicalDate == prevDate) &&
+      if ((treat.logicalDate == activeLogicalDate || treat.logicalDate == prevDate) &&
           seenIds.add(treat.id)) {
         filtered.add(treat);
       }
@@ -620,9 +611,8 @@ class InMemoryHouseholdRepository implements HouseholdRepository {
     }
 
     final trimmedCustom = customLabel?.trim();
-    final resolvedLabel = (trimmedCustom != null && trimmedCustom.isNotEmpty)
-        ? trimmedCustom
-        : preset.label;
+    final resolvedLabel =
+        (trimmedCustom != null && trimmedCustom.isNotEmpty) ? trimmedCustom : preset.label;
     if (resolvedLabel.length > 40) {
       throw ArgumentError('Treat label must be at most 40 characters.');
     }
@@ -659,11 +649,8 @@ class InMemoryHouseholdRepository implements HouseholdRepository {
   }
 
   String _generateJoinCode(String petName) {
-    final letters = petName
-        .toUpperCase()
-        .replaceAll(RegExp(r'[^A-Z]'), '')
-        .padRight(4, 'X')
-        .substring(0, 4);
+    final letters =
+        petName.toUpperCase().replaceAll(RegExp(r'[^A-Z]'), '').padRight(4, 'X').substring(0, 4);
     final digits = (Random().nextInt(90) + 10).toString();
     return '$letters$digits';
   }

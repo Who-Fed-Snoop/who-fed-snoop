@@ -32,37 +32,24 @@ class HouseholdSettingsSheet extends StatefulWidget {
 
   static const Key sheetKey = ValueKey<String>('household_settings_sheet');
   static const Key cyclePreviewKey = ValueKey<String>('schedule_cycle_preview');
-  static const Key loggedTodayNoticeKey =
-      ValueKey<String>('schedule_logged_today_notice');
-  static const Key validationErrorKey =
-      ValueKey<String>('schedule_validation_error');
-  static const Key addCustomWindowButtonKey =
-      ValueKey<String>('schedule_add_custom_window');
-  static const Key treatLimitDecrementKey =
-      ValueKey<String>('settings_treat_limit_dec');
-  static const Key treatLimitIncrementKey =
-      ValueKey<String>('settings_treat_limit_inc');
-  static const Key treatLimitValueKey =
-      ValueKey<String>('settings_treat_limit_value');
+  static const Key loggedTodayNoticeKey = ValueKey<String>('schedule_logged_today_notice');
+  static const Key validationErrorKey = ValueKey<String>('schedule_validation_error');
+  static const Key addCustomWindowButtonKey = ValueKey<String>('schedule_add_custom_window');
+  static const Key treatLimitDecrementKey = ValueKey<String>('settings_treat_limit_dec');
+  static const Key treatLimitIncrementKey = ValueKey<String>('settings_treat_limit_inc');
+  static const Key treatLimitValueKey = ValueKey<String>('settings_treat_limit_value');
   static const Key saveButtonKey = ValueKey<String>('settings_save_button');
-  static const Key editDialogLabelFieldKey =
-      ValueKey<String>('window_edit_label_field');
-  static const Key editDialogEmojiFieldKey =
-      ValueKey<String>('window_edit_emoji_field');
-  static const Key editDialogApplyButtonKey =
-      ValueKey<String>('window_edit_apply_button');
+  static const Key editDialogLabelFieldKey = ValueKey<String>('window_edit_label_field');
+  static const Key editDialogEmojiFieldKey = ValueKey<String>('window_edit_emoji_field');
+  static const Key editDialogApplyButtonKey = ValueKey<String>('window_edit_apply_button');
 
-  static ValueKey<String> windowToggleKey(String id) =>
-      ValueKey<String>('window_toggle_$id');
+  static ValueKey<String> windowToggleKey(String id) => ValueKey<String>('window_toggle_$id');
 
-  static ValueKey<String> windowTimeButtonKey(String id) =>
-      ValueKey<String>('window_time_$id');
+  static ValueKey<String> windowTimeButtonKey(String id) => ValueKey<String>('window_time_$id');
 
-  static ValueKey<String> windowEditButtonKey(String id) =>
-      ValueKey<String>('window_edit_$id');
+  static ValueKey<String> windowEditButtonKey(String id) => ValueKey<String>('window_edit_$id');
 
-  static ValueKey<String> windowDeleteButtonKey(String id) =>
-      ValueKey<String>('window_delete_$id');
+  static ValueKey<String> windowDeleteButtonKey(String id) => ValueKey<String>('window_delete_$id');
 
   static ValueKey<String> presetAddChipKey(MealPeriod period) =>
       ValueKey<String>('schedule_add_preset_${period.name}');
@@ -459,8 +446,7 @@ class _HouseholdSettingsSheetState extends State<HouseholdSettingsSheet> {
                 _WindowConfigCard(
                   config: window,
                   timeLabel: _formatMinutes(window.startMinutesOfDay),
-                  isLoggedToday:
-                      widget.todayLoggedWindowIds.contains(window.id),
+                  isLoggedToday: widget.todayLoggedWindowIds.contains(window.id),
                   canDelete: _windows.length > 1,
                   onToggle: (val) => _toggleWindowEnabled(window.id, val),
                   onPickTime: () => _pickWindowTime(window),
@@ -495,8 +481,7 @@ class _HouseholdSettingsSheetState extends State<HouseholdSettingsSheet> {
                       ),
                       label: const Text('+ Custom Window'),
                       visualDensity: VisualDensity.compact,
-                      backgroundColor:
-                          AppTheme.snoopCollarGold.withValues(alpha: 0.35),
+                      backgroundColor: AppTheme.snoopCollarGold.withValues(alpha: 0.35),
                       onPressed: _addCustomWindow,
                     ),
                   ],
@@ -640,9 +625,7 @@ class _HouseholdSettingsSheetState extends State<HouseholdSettingsSheet> {
                   ),
                 ),
                 label: Text(
-                  _isSaving
-                      ? 'Saving Schedule...'
-                      : 'Save Schedule & Treat Goal',
+                  _isSaving ? 'Saving Schedule...' : 'Save Schedule & Treat Goal',
                   style: const TextStyle(
                     fontSize: 15.5,
                     fontWeight: FontWeight.w900,
@@ -741,8 +724,7 @@ class _CyclePreviewCard extends StatelessWidget {
     }
     final endMinute = (next.startMinutesOfDay - 1 + 1440) % 1440;
     final endStr = formatMinutes(endMinute);
-    final wraps = index == enabledWindows.length - 1 &&
-        next.startMinutesOfDay > 0;
+    final wraps = index == enabledWindows.length - 1 && next.startMinutesOfDay > 0;
     final wrapTag = wraps ? ' (next morning)' : '';
     return '${current.emoji} ${current.label}: $startStr – $endStr$wrapTag';
   }
@@ -799,9 +781,7 @@ class _WindowConfigCard extends StatelessWidget {
                       style: TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w900,
-                        color: config.enabled
-                            ? AppTheme.inkDark
-                            : AppTheme.inkMuted,
+                        color: config.enabled ? AppTheme.inkDark : AppTheme.inkMuted,
                       ),
                     ),
                     if (isLoggedToday)
@@ -899,8 +879,7 @@ class _EditWindowMetadataDialog extends StatefulWidget {
   final String initialEmoji;
 
   @override
-  State<_EditWindowMetadataDialog> createState() =>
-      _EditWindowMetadataDialogState();
+  State<_EditWindowMetadataDialog> createState() => _EditWindowMetadataDialogState();
 }
 
 class _EditWindowMetadataDialogState extends State<_EditWindowMetadataDialog> {

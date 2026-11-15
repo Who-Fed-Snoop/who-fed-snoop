@@ -80,8 +80,7 @@ class SnoopMascotIllustration extends StatelessWidget {
                     left: 4,
                     child: _FloatingComicSticker(
                       label: isFed ? '💖 BELLY FULL!' : '💭 RUMBLE...',
-                      backgroundColor:
-                          isFed ? const Color(0xFFFCE7F3) : Colors.white,
+                      backgroundColor: isFed ? const Color(0xFFFCE7F3) : Colors.white,
                       rotation: -0.10,
                     ),
                   ),
@@ -92,9 +91,7 @@ class SnoopMascotIllustration extends StatelessWidget {
                     right: 4,
                     child: _FloatingComicSticker(
                       label: isFed ? '✨ YUM!' : '🦴 FEED ME?',
-                      backgroundColor: isFed
-                          ? AppTheme.snoopCollarGold
-                          : const Color(0xFFFEF3C7),
+                      backgroundColor: isFed ? AppTheme.snoopCollarGold : const Color(0xFFFEF3C7),
                       rotation: 0.11,
                     ),
                   ),
@@ -147,9 +144,7 @@ class SnoopMascotIllustration extends StatelessWidget {
                         vertical: 1.5,
                       ),
                       decoration: BoxDecoration(
-                        color: isFed
-                            ? AppTheme.fedSurface
-                            : AppTheme.hungrySurface,
+                        color: isFed ? AppTheme.fedSurface : AppTheme.hungrySurface,
                         borderRadius: BorderRadius.circular(8),
                         border: Border.all(color: AppTheme.inkDark, width: 1.5),
                       ),
@@ -442,8 +437,7 @@ class _SnoopCartoonPainter extends CustomPainter {
     // 5. Mouth, tongue (when fed), or dramatic drool droplet (when hungry)
     if (isFed) {
       // Rosy happy cheeks
-      final blushPaint = Paint()
-        ..color = AppTheme.snoopTonguePink.withValues(alpha: 0.45);
+      final blushPaint = Paint()..color = AppTheme.snoopTonguePink.withValues(alpha: 0.45);
       canvas.drawOval(
         Rect.fromCenter(center: Offset(cx - 30, headCy + 12), width: 14, height: 8),
         blushPaint,
@@ -731,8 +725,7 @@ class _SnoopCartoonPainter extends CustomPainter {
       ..lineTo(cx - 64, bottomY)
       ..close();
 
-    final bowlColor =
-        isFed ? AppTheme.fedPrimary : AppTheme.hungryPrimary;
+    final bowlColor = isFed ? AppTheme.fedPrimary : AppTheme.hungryPrimary;
     canvas.drawPath(bowlPath, Paint()..color = bowlColor);
     canvas.drawPath(
       bowlPath,
@@ -751,8 +744,7 @@ class _SnoopCartoonPainter extends CustomPainter {
     );
     canvas.drawOval(
       rimRect,
-      Paint()
-        ..color = isFed ? const Color(0xFFD1FAE5) : const Color(0xFFFEF3C7),
+      Paint()..color = isFed ? const Color(0xFFD1FAE5) : const Color(0xFFFEF3C7),
     );
     canvas.drawOval(
       rimRect,
@@ -764,8 +756,7 @@ class _SnoopCartoonPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _SnoopCartoonPainter oldDelegate) =>
-      oldDelegate.isFed != isFed;
+  bool shouldRepaint(covariant _SnoopCartoonPainter oldDelegate) => oldDelegate.isFed != isFed;
 }
 
 /// Cute circular cartoon badge of Snoop's fluffy black labradoodle face

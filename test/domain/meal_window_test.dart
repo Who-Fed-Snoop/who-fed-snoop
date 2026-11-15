@@ -194,7 +194,8 @@ void main() {
       expect(dupIds.validate(), contains('Duplicate'));
     });
 
-    test('trims leading/trailing whitespace on id, label, and emoji for rules & deterministicId', () {
+    test('trims leading/trailing whitespace on id, label, and emoji for rules & deterministicId',
+        () {
       // 24 trimmed chars ('Second Breakfast Window!') + trailing spaces = 26 raw chars.
       final schedule = MealSchedule.fromWindows(const <MealWindowConfig>[
         MealWindowConfig(
@@ -214,8 +215,8 @@ void main() {
       expect(win.label.length, equals(24));
       expect(win.emoji, equals('🥣'));
 
-      final serialized = (schedule.toJson()['windows'] as List<Object?>).single
-          as Map<String, Object?>;
+      final serialized =
+          (schedule.toJson()['windows'] as List<Object?>).single as Map<String, Object?>;
       expect(serialized['id'], equals('custom_1'));
       expect(serialized['label'], equals('Second Breakfast Window!'));
       expect(serialized['emoji'], equals('🥣'));
