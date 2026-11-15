@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="widget_description">Glance at Snoop\'s meal status and log Breakfast or Dinner in 1 tap.</string>
+    <string name="widget_default_badge">🥣 BREAKFAST</string>
+    <string name="widget_default_headline">Snoop hungry</string>
+    <string name="widget_default_subheadline">Tap Feed to log &amp; notify partner</string>
+    <string name="widget_default_action">Feed</string>
 </resources>
-

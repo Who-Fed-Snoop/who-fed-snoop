@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Hungry / Needs Meal (Warm Charcoal + Amber Neo-Brutalist Dark) -->
+    <color name="widget_bg_hungry">#1C1917</color>
+    <color name="widget_border_hungry">#F59E0B</color>
+    <color name="widget_badge_hungry">#FBBF24</color>
+
+    <!-- Fed / Happy Snoop (Warm Charcoal + Emerald Neo-Brutalist Dark) -->
+    <color name="widget_bg_fed">#1C1917</color>
+    <color name="widget_border_fed">#10B981</color>
+    <color name="widget_badge_fed">#34D399</color>
+
+    <!-- High-contrast Ink & 1-Tap Feed CTA Pill -->
+    <color name="widget_text_primary">#FAF8F5</color>
+    <color name="widget_text_secondary">#D6D3D1</color>
+    <color name="widget_button_bg">#FBBF24</color>
+    <color name="widget_button_border">#FDE68A</color>
+    <color name="widget_button_text">#1C1917</color>
+</resources>

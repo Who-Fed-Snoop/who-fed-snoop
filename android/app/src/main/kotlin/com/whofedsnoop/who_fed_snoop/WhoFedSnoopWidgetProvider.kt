@@ -6,10 +6,13 @@ import android.appwidget.AppWidgetProvider
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.graphics.Color
 import android.net.Uri
+import android.os.Build
+import android.os.Bundle
+import android.util.TypedValue
 import android.view.View
 import android.widget.RemoteViews
+import kotlin.math.roundToInt
 
 class WhoFedSnoopWidgetProvider : AppWidgetProvider() {
 
@@ -19,9 +22,41 @@ class WhoFedSnoopWidgetProvider : AppWidgetProvider() {
         appWidgetIds: IntArray
     ) {
         for (appWidgetId in appWidgetIds) {
-            updateWidget(context, appWidgetManager, appWidgetId)
+            updateWidget(context, appWidgetManager, appWidgetId, null)
         }
     }
+
+    override fun onAppWidgetOptionsChanged(
+        context: Context,
+        appWidgetManager: AppWidgetManager,
+        appWidgetId: Int,
+        newOptions: Bundle
+    ) {
+        super.onAppWidgetOptionsChanged(context, appWidgetManager, appWidgetId, newOptions)
+        updateWidget(context, appWidgetManager, appWidgetId, newOptions)
+    }
+
+    internal enum class WidgetSizeTier {
+        COMPACT, // 2x1 (< 190dp)
+        MEDIUM,  // 3x1 (190dp..259dp)
+        WIDE     // 4x1+ (>= 260dp)
+    }
+
+    internal data class WidgetDisplayContent(
+        val badgeText: String,
+        val headlineText: String,
+        val subheadlineText: String,
+        val showSubheadline: Boolean,
+        val buttonText: String,
+        val rootPaddingH: Int,
+        val rootPaddingV: Int,
+        val buttonPaddingH: Int,
+        val buttonPaddingV: Int,
+        val badgeTextSizeSp: Float,
+        val headlineTextSizeSp: Float,
+        val subheadlineTextSizeSp: Float,
+        val buttonTextSizeSp: Float
+    )
 
     companion object {
         const val PREFS_NAME = "who_fed_snoop_widget_prefs"
@@ -36,22 +71,121 @@ class WhoFedSnoopWidgetProvider : AppWidgetProvider() {
         const val KEY_NEXT_WINDOW_EMOJI = "nextWindowEmoji"
         const val KEY_HOUSEHOLD_ID = "householdId"
 
+        private const val MEDIUM_MIN_WIDTH_DP = 190
+        private const val WIDE_MIN_WIDTH_DP = 260
+
         fun updateAllWidgets(context: Context) {
             val manager = AppWidgetManager.getInstance(context)
             val componentName = ComponentName(context, WhoFedSnoopWidgetProvider::class.java)
             val ids = manager.getAppWidgetIds(componentName)
             for (id in ids) {
-                updateWidget(context, manager, id)
+                updateWidget(context, manager, id, null)
+            }
+        }
+
+        internal fun resolveSizeTier(minWidthDp: Int): WidgetSizeTier = when {
+            minWidthDp <= 0 || minWidthDp < MEDIUM_MIN_WIDTH_DP -> WidgetSizeTier.COMPACT
+            minWidthDp < WIDE_MIN_WIDTH_DP -> WidgetSizeTier.MEDIUM
+            else -> WidgetSizeTier.WIDE
+        }
+
+        internal fun compactFedHeadline(
+            fullHeadline: String,
+            windowLabel: String,
+            petName: String
+        ): String {
+            val trimmed = fullHeadline.trim()
+            if (trimmed.isEmpty()) {
+                return "✅ $petName fed"
+            }
+            val suffix = " $windowLabel"
+            if (trimmed.length > suffix.length && trimmed.endsWith(suffix, ignoreCase = true)) {
+                return trimmed.dropLast(suffix.length).trimEnd()
+            }
+            return trimmed
+        }
+
+        internal fun buildWidgetContent(
+            tier: WidgetSizeTier,
+            petName: String,
+            isFed: Boolean,
+            windowLabel: String,
+            windowEmoji: String,
+            fullHeadline: String,
+            fullSubheadline: String
+        ): WidgetDisplayContent {
+            val fallbackHeadline = if (isFed) {
+                "✅ $petName fed"
+            } else {
+                "$windowEmoji $petName needs $windowLabel"
+            }
+            val resolvedHeadline = fullHeadline.ifBlank { fallbackHeadline }
+
+            return when (tier) {
+                WidgetSizeTier.COMPACT -> WidgetDisplayContent(
+                    badgeText = if (isFed) {
+                        "$windowEmoji ${windowLabel.uppercase()} · FED"
+                    } else {
+                        "$windowEmoji ${windowLabel.uppercase()}"
+                    },
+                    headlineText = if (isFed) {
+                        compactFedHeadline(resolvedHeadline, windowLabel, petName)
+                    } else {
+                        "$petName hungry"
+                    },
+                    subheadlineText = "",
+                    showSubheadline = false,
+                    buttonText = "Feed",
+                    rootPaddingH = 10,
+                    rootPaddingV = 8,
+                    buttonPaddingH = 10,
+                    buttonPaddingV = 7,
+                    badgeTextSizeSp = 11f,
+                    headlineTextSizeSp = 13f,
+                    subheadlineTextSizeSp = 11f,
+                    buttonTextSizeSp = 12f
+                )
+                WidgetSizeTier.MEDIUM -> WidgetDisplayContent(
+                    badgeText = "$windowEmoji ${windowLabel.uppercase()} WINDOW",
+                    headlineText = resolvedHeadline,
+                    subheadlineText = fullSubheadline,
+                    showSubheadline = fullSubheadline.isNotBlank(),
+                    buttonText = "Feed",
+                    rootPaddingH = 12,
+                    rootPaddingV = 8,
+                    buttonPaddingH = 12,
+                    buttonPaddingV = 8,
+                    badgeTextSizeSp = 11f,
+                    headlineTextSizeSp = 14f,
+                    subheadlineTextSizeSp = 11f,
+                    buttonTextSizeSp = 12.5f
+                )
+                WidgetSizeTier.WIDE -> WidgetDisplayContent(
+                    badgeText = "$windowEmoji ${windowLabel.uppercase()} WINDOW",
+                    headlineText = resolvedHeadline,
+                    subheadlineText = fullSubheadline,
+                    showSubheadline = fullSubheadline.isNotBlank(),
+                    buttonText = "I Fed $petName",
+                    rootPaddingH = 14,
+                    rootPaddingV = 10,
+                    buttonPaddingH = 14,
+                    buttonPaddingV = 9,
+                    badgeTextSizeSp = 11f,
+                    headlineTextSizeSp = 15.5f,
+                    subheadlineTextSizeSp = 12f,
+                    buttonTextSizeSp = 13f
+                )
             }
         }
 
         private fun updateWidget(
             context: Context,
             appWidgetManager: AppWidgetManager,
-            appWidgetId: Int
+            appWidgetId: Int,
+            appWidgetOptions: Bundle?
         ) {
             val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            val petName = prefs.getString(KEY_PET_NAME, "Snoop") ?: "Snoop"
+            val petName = (prefs.getString(KEY_PET_NAME, "Snoop") ?: "Snoop").ifBlank { "Snoop" }
             val storedHeadline = prefs.getString(KEY_HEADLINE, "🥣 $petName needs Breakfast")
                 ?: "🥣 $petName needs Breakfast"
             val storedSubheadline = prefs.getString(
@@ -67,8 +201,8 @@ class WhoFedSnoopWidgetProvider : AppWidgetProvider() {
             val storedNextWindowLabel = prefs.getString(KEY_NEXT_WINDOW_LABEL, "") ?: ""
             val storedNextWindowEmoji =
                 (prefs.getString(KEY_NEXT_WINDOW_EMOJI, "🐾") ?: "🐾").ifBlank { "🐾" }
-            val householdId = prefs.getString(KEY_HOUSEHOLD_ID, "household_snoop_01")
-                ?: "household_snoop_01"
+            val householdId = (prefs.getString(KEY_HOUSEHOLD_ID, "household_snoop_01")
+                ?: "household_snoop_01").ifBlank { "household_snoop_01" }
 
             val hasWindowRolledOver =
                 nextTransitionEpochMs > 0L && System.currentTimeMillis() >= nextTransitionEpochMs
@@ -76,43 +210,96 @@ class WhoFedSnoopWidgetProvider : AppWidgetProvider() {
             val isFed: Boolean
             val windowLabel: String
             val windowEmoji: String
-            val headline: String
-            val subheadline: String
+            val fullHeadline: String
+            val fullSubheadline: String
 
             if (hasWindowRolledOver) {
                 isFed = false
                 windowLabel = storedNextWindowLabel.ifBlank { storedMealPeriod }
                 windowEmoji = storedNextWindowEmoji
-                headline = "$windowEmoji $petName needs $windowLabel"
-                subheadline = "Tap to log ${windowLabel.lowercase()} & notify partner"
+                fullHeadline = "$windowEmoji $petName needs $windowLabel"
+                fullSubheadline = "Tap to log ${windowLabel.lowercase()} & notify partner"
             } else {
                 isFed = storedIsFed
                 windowLabel = storedMealPeriod
                 windowEmoji = storedWindowEmoji
-                headline = storedHeadline
-                subheadline = storedSubheadline
+                fullHeadline = storedHeadline
+                fullSubheadline = storedSubheadline
             }
 
+            val options = appWidgetOptions ?: appWidgetManager.getAppWidgetOptions(appWidgetId)
+            val minWidthDp = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 0)
+            val tier = resolveSizeTier(minWidthDp)
+            val content = buildWidgetContent(
+                tier = tier,
+                petName = petName,
+                isFed = isFed,
+                windowLabel = windowLabel,
+                windowEmoji = windowEmoji,
+                fullHeadline = fullHeadline,
+                fullSubheadline = fullSubheadline
+            )
+
             val views = RemoteViews(context.packageName, R.layout.who_fed_snoop_widget)
+
+            val rootPadH = dpToPx(context, content.rootPaddingH)
+            val rootPadV = dpToPx(context, content.rootPaddingV)
+            views.setViewPadding(R.id.widget_root, rootPadH, rootPadV, rootPadH, rootPadV)
 
             views.setInt(
                 R.id.widget_root,
                 "setBackgroundResource",
                 if (isFed) R.drawable.widget_background_fed else R.drawable.widget_background_hungry
             )
-            views.setTextViewText(R.id.widget_badge, "$windowEmoji ${windowLabel.uppercase()} WINDOW")
-            views.setTextColor(
+
+            val badgeColorRes = if (isFed) R.color.widget_badge_fed else R.color.widget_badge_hungry
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                // Passing the color resource ID lets Android 12+ launchers re-theme immediately
+                // when OS Dark Mode toggles, without waiting for an APPWIDGET_UPDATE broadcast.
+                views.setColor(R.id.widget_badge, "setTextColor", badgeColorRes)
+            } else {
+                views.setTextColor(R.id.widget_badge, context.getColor(badgeColorRes))
+            }
+
+            views.setTextViewText(R.id.widget_badge, content.badgeText)
+            views.setTextViewTextSize(
                 R.id.widget_badge,
-                Color.parseColor(if (isFed) "#059669" else "#D97706")
+                TypedValue.COMPLEX_UNIT_SP,
+                content.badgeTextSizeSp
             )
-            views.setTextViewText(R.id.widget_headline, headline)
-            views.setTextViewText(R.id.widget_subheadline, subheadline)
+
+            views.setTextViewText(R.id.widget_headline, content.headlineText)
+            views.setTextViewTextSize(
+                R.id.widget_headline,
+                TypedValue.COMPLEX_UNIT_SP,
+                content.headlineTextSizeSp
+            )
+
+            if (content.showSubheadline) {
+                views.setViewVisibility(R.id.widget_subheadline, View.VISIBLE)
+                views.setTextViewText(R.id.widget_subheadline, content.subheadlineText)
+                views.setTextViewTextSize(
+                    R.id.widget_subheadline,
+                    TypedValue.COMPLEX_UNIT_SP,
+                    content.subheadlineTextSizeSp
+                )
+            } else {
+                views.setViewVisibility(R.id.widget_subheadline, View.GONE)
+            }
 
             if (isFed) {
                 views.setViewVisibility(R.id.widget_action_button, View.GONE)
             } else {
+                val btnPadH = dpToPx(context, content.buttonPaddingH)
+                val btnPadV = dpToPx(context, content.buttonPaddingV)
                 views.setViewVisibility(R.id.widget_action_button, View.VISIBLE)
-                views.setTextViewText(R.id.widget_action_button, "I Fed $petName")
+                views.setViewPadding(R.id.widget_action_button, btnPadH, btnPadV, btnPadH, btnPadV)
+                views.setTextViewText(R.id.widget_action_button, content.buttonText)
+                views.setTextViewTextSize(
+                    R.id.widget_action_button,
+                    TypedValue.COMPLEX_UNIT_SP,
+                    content.buttonTextSizeSp
+                )
             }
 
             // Clicking the card opens the app
@@ -127,7 +314,7 @@ class WhoFedSnoopWidgetProvider : AppWidgetProvider() {
             )
             views.setOnClickPendingIntent(R.id.widget_root, openPendingIntent)
 
-            // Clicking "I Fed Snoop" triggers the 1-tap /tap/{householdId} deep link
+            // Clicking the Feed pill triggers the 1-tap /tap/{householdId} deep link
             val tapFeedIntent = Intent(
                 Intent.ACTION_VIEW,
                 Uri.parse("https://whofedsnoop.com/tap/$householdId"),
@@ -146,5 +333,8 @@ class WhoFedSnoopWidgetProvider : AppWidgetProvider() {
 
             appWidgetManager.updateAppWidget(appWidgetId, views)
         }
+
+        private fun dpToPx(context: Context, dp: Int): Int =
+            (dp * context.resources.displayMetrics.density).roundToInt()
     }
 }

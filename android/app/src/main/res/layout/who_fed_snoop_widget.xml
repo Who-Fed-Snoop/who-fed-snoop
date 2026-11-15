@@ -6,7 +6,10 @@
     android:background="@drawable/widget_background_hungry"
     android:gravity="center_vertical"
     android:orientation="horizontal"
-    android:padding="16dp">
+    android:paddingStart="10dp"
+    android:paddingTop="8dp"
+    android:paddingEnd="10dp"
+    android:paddingBottom="8dp">
 
     <LinearLayout
         android:layout_width="0dp"
@@ -18,8 +21,11 @@
             android:id="@+id/widget_badge"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="🐾 WHO FED SNOOP?"
-            android:textColor="#D97706"
+            android:ellipsize="end"
+            android:includeFontPadding="false"
+            android:maxLines="1"
+            android:text="@string/widget_default_badge"
+            android:textColor="@color/widget_badge_hungry"
             android:textSize="11sp"
             android:textStyle="bold" />
 
@@ -27,12 +33,13 @@
             android:id="@+id/widget_headline"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
+            android:layout_marginTop="2dp"
             android:ellipsize="end"
+            android:includeFontPadding="false"
             android:maxLines="1"
-            android:text="🥣 Snoop needs Breakfast"
-            android:textColor="#1C1917"
-            android:textSize="16sp"
+            android:text="@string/widget_default_headline"
+            android:textColor="@color/widget_text_primary"
+            android:textSize="13sp"
             android:textStyle="bold" />
 
         <TextView
@@ -41,25 +48,29 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="2dp"
             android:ellipsize="end"
+            android:includeFontPadding="false"
             android:maxLines="1"
-            android:text="Tap Feed to log &amp; notify partner"
-            android:textColor="#57534E"
-            android:textSize="12sp" />
+            android:text="@string/widget_default_subheadline"
+            android:textColor="@color/widget_text_secondary"
+            android:textSize="11sp"
+            android:visibility="gone" />
     </LinearLayout>
 
     <TextView
         android:id="@+id/widget_action_button"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginStart="12dp"
+        android:layout_marginStart="8dp"
         android:background="@drawable/widget_button_bg"
-        android:paddingStart="16dp"
-        android:paddingTop="10dp"
-        android:paddingEnd="16dp"
-        android:paddingBottom="10dp"
-        android:text="I Fed Snoop"
-        android:textColor="#FFFFFF"
-        android:textSize="13sp"
+        android:gravity="center"
+        android:includeFontPadding="false"
+        android:maxLines="1"
+        android:paddingStart="10dp"
+        android:paddingTop="7dp"
+        android:paddingEnd="10dp"
+        android:paddingBottom="7dp"
+        android:text="@string/widget_default_action"
+        android:textColor="@color/widget_button_text"
+        android:textSize="12sp"
         android:textStyle="bold" />
 </LinearLayout>
-
