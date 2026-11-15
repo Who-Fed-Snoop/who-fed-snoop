@@ -1,22 +1,23 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "$REPO_ROOT"
+cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-echo "==> 1/5 Checking dev-loop documentation sync..."
+[[ -f .dart_tool/package_config.json ]] || flutter pub get
+
+echo "==> [1/5] Docs sync"
 ./scripts/check-dev-docs-sync.sh --check
 
-echo "==> 2/5 Checking Dart formatting (lib/ and test/)..."
+echo "==> [2/5] Format"
 dart format --output=none --set-exit-if-changed lib test
 
-echo "==> 3/5 Running Flutter static analysis (--fatal-infos)..."
-flutter analyze --fatal-infos
+echo "==> [3/5] Analyze"
+flutter analyze --no-pub --fatal-infos
 
-echo "==> 4/5 Running unit and widget test suite..."
-flutter test
+echo "==> [4/5] Test"
+flutter test --no-pub --reporter failures-only
 
-echo "==> 5/5 Building release web bundle for whofedsnoop.com..."
-flutter build web --release
+echo "==> [5/5] Web release build"
+flutter build web --release --no-pub --no-wasm-dry-run
 
-echo "✅ All verification checks passed!"
+echo "✅ Verify passed."
