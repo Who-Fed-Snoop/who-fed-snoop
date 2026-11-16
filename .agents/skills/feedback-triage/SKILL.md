@@ -36,12 +36,12 @@ If critical reproduction or UX intent is ambiguous, ask 1–2 brief clarifying q
 ## 4. Present Triage & Ask Before Changing Code (Mandatory Default)
 Unless Keni explicitly instructed *"fix this right now"* in the same prompt, **stop before editing application code** and reply concisely with:
 1. **Logged Item(s):** `FB-###` summary, severity, and root cause / overlap with known roadmap gaps.
-2. **Recommendation:** **Fix Now (Dogfood Fast-Lane)** vs. **Queue in Phase X**, with a 1–2 sentence rationale and proposed implementation approach (preserving the **2-Second Rule**, Neo-Brutalist `AppTheme`, finite animations, and near-\$0 Firebase guardrails).
+2. **Recommendation:** **Fix Now (Dogfood Fast-Lane)** vs. **Queue in Phase X**, with a 1–2 sentence rationale and proposed modular approach (checking target `wc -l` per [`token-efficient-modularity`](../token-efficient-modularity/SKILL.md) to extend/extract focused modules & test slices while preserving the **2-Second Rule**, Neo-Brutalist `AppTheme`, finite animations, and near-\$0 Firebase guardrails).
 3. **Decision Prompt:** Ask whether to **implement the fix now**, **adjust the plan/priority**, or **leave it queued**.
 
 ## 5. Ship & Close the Loop (Once Approved)
 When Keni says go on an `FB-###` item:
-1. Mark status `In Progress` (if multi-step) and implement the fix + unit/widget regression test(s) respecting all invariants in `AGENTS.md`.
+1. Mark status `In Progress` (if multi-step) and implement the fix + behavior-sliced regression test(s) respecting [`AGENTS.md`](../../../AGENTS.md) and [`token-efficient-modularity`](../token-efficient-modularity/SKILL.md) (`150–350L` file budgets, shared policies/helpers, scoped `flutter test <slice> --no-pub -r failures-only` inner loop).
 2. Run `./scripts/verify.sh` (and update `docs/DEVELOPMENT_LOOP.md` if stack/config/test files `A/D/R` changed).
 3. Move the row from its active queue to **✅ Shipped & Verified** in `docs/FEEDBACK_LOG.md` with the date, summary of fix, and verification status, and update any `[FB-###]` reference in `docs/PRODUCTIZATION_GAPS_AND_ROADMAP.md`.
 4. Note whether Keni & Ashley need a **Firebase deploy** (`firebase deploy --only hosting,firestore`) or **fresh APK install** (`flutter build apk --release --split-per-abi`) for the change to take effect on their phones.

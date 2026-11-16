@@ -1,8 +1,10 @@
 # Who Fed Snoop? — Agent Rules
 
-- **Verify:** `./scripts/verify.sh` (fast inner loop: `dart format lib test && flutter analyze --no-pub --fatal-infos && flutter test --no-pub -r failures-only`).
+- **Verify:** `./scripts/verify.sh` (fast inner loop: `dart format lib test && flutter analyze --no-pub --fatal-infos && flutter test [slice] --no-pub -r failures-only`).
 - **Run flags:** `--dart-define=USE_IN_MEMORY_REPO=true` (offline) | `--dart-define=USE_FIREBASE_EMULATOR=true` (Auth `:9099`, Firestore `:8080`).
 - **UI invariants:** Finite animations only (`pumpAndSettle()` safe); zero `RenderFlex` overflow at `360×800` and height `<680`.
+- **Modularity & File Budgets:** Keep `lib/`, `test/`, and `android/.../*.kt` files ~150–350L (split before ~400L; cohesive `CustomPainter`s <=550L; zero wrapper ceremony). Use thin `ChangeNotifier` ViewModel facades over focused controllers/coordinators, separate `views/` from `widgets/` + painters, centralize shared domain/validation/pruning/prefs logic (never duplicate across `InMemory`/`Firestore` or Dart/Kotlin), and split tests by behavior slice with `test/helpers/` (see `token-efficient-modularity` skill).
+- **Token Hygiene:** Prefer symbol search + bounded line-range reads over full-file reads, run scoped `flutter test <slice> --no-pub -r failures-only` in inner loops before full `./scripts/verify.sh`, and partition multi-agent/refactor work onto disjoint file slices (barrel `export`s first; `test/*_test.dart` A/D/R + `DEVELOPMENT_LOOP.md` sync in one final pass).
 - **Firestore rules:** Delegate `firestore.rules` edits to `firestore-rules-author` subagent when available.
 - **Feedback & Roadmap:** Track Keni/Ashley dogfood bugs & ideas in `docs/FEEDBACK_LOG.md` cross-linked to `docs/PRODUCTIZATION_GAPS_AND_ROADMAP.md` (use `feedback-triage` skill: log & triage first, propose *Dogfood Now* vs. *Phase 0–4*, and confirm before changing code).
 - **Runbook & Living Docs:** Read `docs/DEVELOPMENT_LOOP.md` only when releasing, deploying, or changing stack/build setup. Update it in the same commit whenever dependencies, flags, Firebase/build configs, targets, scripts, or test files (`A/D/R`) change (enforced by `.agents/hooks.json`, `.githooks/pre-commit`, and `verify.sh`; set `SKIP_DEV_DOCS_SYNC=1` if N/A).
