@@ -38,6 +38,8 @@ class OnboardingSheet extends StatefulWidget {
   static const Key petNameFieldKey = PackHqSetupFormCard.petNameFieldKey;
   static const Key submitButtonKey = PackHqSetupFormCard.submitButtonKey;
   static const Key errorBannerKey = PackHqSetupFormCard.errorBannerKey;
+  static const Key scoopHolderErrorBannerKey = ScoopHolderCard.errorBannerKey;
+  static const Key smartLinkCopiedBannerKey = PackHqSmartLinksSection.copiedBannerKey;
 
   /// Maximum member display name length matching `firestore.rules` (`1..50`).
   static const int maxMemberNameLength = PackHqSetupFormCard.maxMemberNameLength;
@@ -58,6 +60,8 @@ class _OnboardingSheetState extends State<OnboardingSheet> {
   bool _didPop = false;
   bool _isOpeningSettings = false;
   String? _localError;
+  String? _scoopHolderError;
+  String? _copiedLinkMessage;
 
   late final TextEditingController _nameController;
   late final TextEditingController _petNameController;
@@ -98,31 +102,41 @@ class _OnboardingSheetState extends State<OnboardingSheet> {
     super.dispose();
   }
 
-  static String _cleanErrorMessage(Object error) {
-    final raw = error.toString().trim();
-    for (final prefix in const <String>[
-      'Bad state: ',
-      'Invalid argument(s): ',
-    ]) {
-      if (raw.startsWith(prefix)) {
-        return raw.substring(prefix.length).trim();
-      }
-    }
-    return raw;
-  }
-
   Future<void> _selectScoopHolder({
     required String uid,
     required String name,
   }) async {
     if (_isSubmitting || _didPop) return;
-    await widget.viewModel.switchActiveMember(uid: uid, name: name);
-    if (!mounted) return;
-    _nameController.text = HouseholdStatePolicy.sanitizeName(
-      widget.viewModel.currentMemberName,
-      fallback: 'Member',
-      maxLength: OnboardingSheet.maxMemberNameLength,
-    );
+    setState(() => _scoopHolderError = null);
+    try {
+      await widget.viewModel.switchActiveMember(
+        uid: uid,
+        name: name,
+        rethrowOnError: true,
+      );
+      if (!mounted) return;
+      _nameController.text = HouseholdStatePolicy.sanitizeName(
+        widget.viewModel.currentMemberName,
+        fallback: 'Member',
+        maxLength: OnboardingSheet.maxMemberNameLength,
+      );
+    } on Object catch (e) {
+      if (mounted && !_didPop) {
+        setState(() => _scoopHolderError = FeederViewModel.formatErrorMessage(e));
+      }
+    }
+  }
+
+  Future<void> _simulatePartner() async {
+    if (_isSubmitting || _didPop) return;
+    setState(() => _scoopHolderError = null);
+    try {
+      await widget.viewModel.simulatePartnerFeed(rethrowOnError: true);
+    } on Object catch (e) {
+      if (mounted && !_didPop) {
+        setState(() => _scoopHolderError = FeederViewModel.formatErrorMessage(e));
+      }
+    }
   }
 
   Future<void> _openCustomScoopHolderDialog() async {
@@ -162,6 +176,7 @@ class _OnboardingSheetState extends State<OnboardingSheet> {
           onSave: (schedule, dailyTreatLimit) => widget.viewModel.updateHouseholdSettings(
             schedule: schedule,
             dailyTreatLimit: dailyTreatLimit,
+            rethrowOnError: true,
           ),
         ),
       );
@@ -210,7 +225,7 @@ class _OnboardingSheetState extends State<OnboardingSheet> {
       }
     } on Object catch (e) {
       if (mounted && !_didPop) {
-        setState(() => _localError = _cleanErrorMessage(e));
+        setState(() => _localError = FeederViewModel.formatErrorMessage(e));
       }
     } finally {
       if (mounted && !_didPop) {
@@ -222,11 +237,18 @@ class _OnboardingSheetState extends State<OnboardingSheet> {
   }
 
   Future<void> _copyLink(String label, Uri uri) async {
-    await Clipboard.setData(ClipboardData(text: uri.toString()));
-    if (mounted) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Copied $label: $uri')));
+    try {
+      await Clipboard.setData(ClipboardData(text: uri.toString()));
+      if (mounted) {
+        setState(() => _copiedLinkMessage = '✓ Copied $label!');
+      }
+    } on Object catch (e) {
+      if (mounted) {
+        setState(
+          () => _copiedLinkMessage =
+              'Could not copy $label: ${FeederViewModel.formatErrorMessage(e)}',
+        );
+      }
     }
   }
 
@@ -282,8 +304,10 @@ class _OnboardingSheetState extends State<OnboardingSheet> {
                 ScoopHolderCard(
                   viewModel: widget.viewModel,
                   enabled: !_isSubmitting,
+                  errorMessage: _scoopHolderError,
                   onSelectMember: _selectScoopHolder,
                   onCustomName: _openCustomScoopHolderDialog,
+                  onSimulatePartner: _simulatePartner,
                 ),
                 const SizedBox(height: 14),
                 ScheduleAndTreatGoalCard(
@@ -313,6 +337,7 @@ class _OnboardingSheetState extends State<OnboardingSheet> {
                   joinUri: WhofedsnoopDeepLink.buildJoinUri(joinCode),
                   nfcTapUri: WhofedsnoopDeepLink.buildNfcTapUri(householdId),
                   sitterUri: WhofedsnoopDeepLink.buildSitterPassUri(joinCode),
+                  copiedBannerMessage: _copiedLinkMessage,
                   onCopyLink: _copyLink,
                 ),
               ],

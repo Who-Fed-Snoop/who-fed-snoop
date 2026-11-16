@@ -19,6 +19,8 @@ class TreatJarCard extends StatefulWidget {
     required this.dailyTreatLimit,
     required this.currentMemberUid,
     this.isCompact = false,
+    this.activeLoggingPreset,
+    this.deletingTreatIds = const <String>{},
     required this.onLogPreset,
     required this.onLogCustomTreat,
     required this.onDeleteTreat,
@@ -30,6 +32,8 @@ class TreatJarCard extends StatefulWidget {
   final int dailyTreatLimit;
   final String currentMemberUid;
   final bool isCompact;
+  final TreatPreset? activeLoggingPreset;
+  final Set<String> deletingTreatIds;
   final ValueChanged<TreatPreset> onLogPreset;
   final OnLogCustomTreat onLogCustomTreat;
   final ValueChanged<String> onDeleteTreat;
@@ -162,40 +166,46 @@ class _TreatJarCardState extends State<TreatJarCard> {
                 key: TreatJarCard.allowancePillKey,
                 onTap: widget.onOpenSettings,
                 borderRadius: BorderRadius.circular(999),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 4,
-                  ),
-                  decoration: AppTheme.comicPillDecoration(
-                    color: pillBgColor,
-                    borderColor: AppTheme.inkDark,
-                    borderWidth: 1.7,
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: <Widget>[
-                      Flexible(
-                        child: Text(
-                          pillText,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w900,
-                            color: AppTheme.inkDark,
-                            letterSpacing: 0.3,
-                          ),
-                        ),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(minWidth: 48, minHeight: 44),
+                  child: Center(
+                    widthFactor: 1.0,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 4,
                       ),
-                      if (widget.onOpenSettings != null) ...<Widget>[
-                        const SizedBox(width: 4),
-                        const Icon(
-                          Icons.tune,
-                          size: 13,
-                          color: AppTheme.inkDark,
-                        ),
-                      ],
-                    ],
+                      decoration: AppTheme.comicPillDecoration(
+                        color: pillBgColor,
+                        borderColor: AppTheme.inkDark,
+                        borderWidth: 1.7,
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: <Widget>[
+                          Flexible(
+                            child: Text(
+                              pillText,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w900,
+                                color: AppTheme.inkDark,
+                                letterSpacing: 0.3,
+                              ),
+                            ),
+                          ),
+                          if (widget.onOpenSettings != null) ...<Widget>[
+                            const SizedBox(width: 4),
+                            const Icon(
+                              Icons.tune,
+                              size: 13,
+                              color: AppTheme.inkDark,
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -241,7 +251,7 @@ class _TreatJarCardState extends State<TreatJarCard> {
           // 1-Tap Preset Chips + Custom Button
           Wrap(
             spacing: 8,
-            runSpacing: 8,
+            runSpacing: 4,
             children: <Widget>[
               for (final preset in TreatJarCard._quickPresets)
                 QuickTreatChip(
@@ -250,6 +260,8 @@ class _TreatJarCardState extends State<TreatJarCard> {
                   label: _shortPresetLabel(preset),
                   calories: preset.defaultCalories,
                   backgroundColor: AppTheme.hungrySurface,
+                  isLoading: widget.activeLoggingPreset == preset,
+                  enabled: widget.activeLoggingPreset == null,
                   onTap: () => widget.onLogPreset(preset),
                 ),
               QuickTreatChip(
@@ -259,12 +271,14 @@ class _TreatJarCardState extends State<TreatJarCard> {
                 backgroundColor: AppTheme.snoopCollarGold.withValues(
                   alpha: 0.35,
                 ),
+                isLoading: widget.activeLoggingPreset == TreatPreset.custom,
+                enabled: widget.activeLoggingPreset == null,
                 onTap: _openCustomTreatSheet,
               ),
             ],
           ),
 
-          SizedBox(height: widget.isCompact ? 8 : 10),
+          SizedBox(height: widget.isCompact ? 6 : 8),
 
           // Expandable Today's Treats Drawer
           InkWell(
@@ -272,7 +286,9 @@ class _TreatJarCardState extends State<TreatJarCard> {
             onTap: () => setState(() => _isDrawerExpanded = !_isDrawerExpanded),
             borderRadius: BorderRadius.circular(14),
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              constraints: const BoxConstraints(minHeight: 48),
+              alignment: Alignment.center,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               decoration: BoxDecoration(
                 color: AppTheme.pageBackground,
                 borderRadius: BorderRadius.circular(14),
@@ -327,6 +343,7 @@ class _TreatJarCardState extends State<TreatJarCard> {
                 TodayTreatRow(
                   treat: treat,
                   timeString: _formatClockTime(treat.givenAt),
+                  isDeleting: widget.deletingTreatIds.contains(treat.id),
                   onDelete: () => widget.onDeleteTreat(treat.id),
                 ),
           ],

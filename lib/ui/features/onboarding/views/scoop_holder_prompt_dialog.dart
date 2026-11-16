@@ -53,10 +53,20 @@ class _ScoopHolderPromptDialogState extends State<ScoopHolderPromptDialog> {
     });
 
     try {
-      await widget.viewModel.bindScoopHolder(uid: uid, name: name);
+      await widget.viewModel.bindScoopHolder(
+        uid: uid,
+        name: name,
+        rethrowOnError: true,
+      );
       if (mounted && !_didBind) {
         _didBind = true;
         Navigator.of(context).pop();
+      }
+    } on Object catch (e) {
+      if (mounted && !_didBind) {
+        setState(() {
+          _validationError = FeederViewModel.formatErrorMessage(e);
+        });
       }
     } finally {
       if (mounted && !_didBind) {
@@ -159,6 +169,8 @@ class _ScoopHolderPromptDialogState extends State<ScoopHolderPromptDialog> {
                           style: FilledButton.styleFrom(
                             backgroundColor: AppTheme.snoopCollarGold,
                             foregroundColor: AppTheme.inkDark,
+                            tapTargetSize: MaterialTapTargetSize.padded,
+                            minimumSize: const Size(48, 44),
                             padding: EdgeInsets.symmetric(
                               vertical: isCompactHeight ? 12 : 15,
                               horizontal: 8,
@@ -196,6 +208,8 @@ class _ScoopHolderPromptDialogState extends State<ScoopHolderPromptDialog> {
                           style: FilledButton.styleFrom(
                             backgroundColor: AppTheme.fedPrimary,
                             foregroundColor: Colors.white,
+                            tapTargetSize: MaterialTapTargetSize.padded,
+                            minimumSize: const Size(48, 44),
                             padding: EdgeInsets.symmetric(
                               vertical: isCompactHeight ? 12 : 15,
                               horizontal: 8,
@@ -262,6 +276,8 @@ class _ScoopHolderPromptDialogState extends State<ScoopHolderPromptDialog> {
                         style: FilledButton.styleFrom(
                           backgroundColor: AppTheme.hungryPrimary,
                           foregroundColor: Colors.white,
+                          tapTargetSize: MaterialTapTargetSize.padded,
+                          minimumSize: const Size(64, 44),
                           padding: const EdgeInsets.symmetric(
                             horizontal: 16,
                             vertical: 12,
@@ -274,9 +290,9 @@ class _ScoopHolderPromptDialogState extends State<ScoopHolderPromptDialog> {
                             ),
                           ),
                         ),
-                        child: const Text(
-                          'Save',
-                          style: TextStyle(fontWeight: FontWeight.w900),
+                        child: Text(
+                          _isSaving ? 'Saving...' : 'Save',
+                          style: const TextStyle(fontWeight: FontWeight.w900),
                         ),
                       ),
                     ],

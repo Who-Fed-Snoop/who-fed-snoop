@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../../domain/models/household.dart';
 import '../../../../domain/models/meal_window.dart';
+import '../../../../domain/models/treat_event.dart';
 import '../../../core/app_theme.dart';
 import '../../../core/snoop_mascot.dart';
 import '../../onboarding/views/onboarding_sheet.dart';
@@ -35,6 +36,7 @@ class FeederView extends StatefulWidget {
   static const Key bonusMealButtonKey = HeroStatusAndFeedCard.bonusMealButtonKey;
   static const Key errorBannerKey = ErrorBanner.bannerKey;
   static const Key dismissErrorButtonKey = ErrorBanner.dismissButtonKey;
+  static const Key retryHouseholdButtonKey = Key('retry_household_button');
   static const Key historyFilterAllKey = RecentHistorySection.filterAllKey;
   static const Key historyFilterMealsKey = RecentHistorySection.filterMealsKey;
   static const Key historyFilterTreatsKey = RecentHistorySection.filterTreatsKey;
@@ -44,8 +46,11 @@ class FeederView extends StatefulWidget {
 }
 
 class _FeederViewState extends State<FeederView> {
+  final ScrollController _scrollController = ScrollController();
+  final GlobalKey _undoBarKey = GlobalKey();
   bool _isScoopPromptOpen = false;
   bool _promptCheckScheduled = false;
+  String? _lastSnackError;
 
   @override
   void initState() {
@@ -60,6 +65,7 @@ class _FeederViewState extends State<FeederView> {
     if (oldWidget.viewModel != widget.viewModel) {
       oldWidget.viewModel.removeListener(_handleViewModelChanged);
       widget.viewModel.addListener(_handleViewModelChanged);
+      _lastSnackError = widget.viewModel.errorMessage;
       _schedulePromptCheck();
     }
   }
@@ -67,12 +73,88 @@ class _FeederViewState extends State<FeederView> {
   @override
   void dispose() {
     widget.viewModel.removeListener(_handleViewModelChanged);
+    _scrollController.dispose();
     super.dispose();
   }
 
   void _handleViewModelChanged() {
     if (widget.viewModel.needsScoopHolderPrompt && !_isScoopPromptOpen) {
       _schedulePromptCheck();
+    }
+    final currentError = widget.viewModel.errorMessage;
+    if (currentError == null) {
+      _lastSnackError = null;
+    } else if (currentError != _lastSnackError) {
+      _lastSnackError = currentError;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        final isCurrentRoute = ModalRoute.of(context)?.isCurrent ?? true;
+        if (!isCurrentRoute) return;
+        _showActionSnackBar(
+          '⚠️ $currentError',
+          actionLabel: 'Dismiss',
+          onAction: widget.viewModel.dismissError,
+        );
+      });
+    }
+  }
+
+  void _showActionSnackBar(
+    String message, {
+    String? actionLabel,
+    VoidCallback? onAction,
+  }) {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    if (messenger == null) return;
+    messenger
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(message),
+          action: actionLabel != null && onAction != null
+              ? SnackBarAction(
+                  label: actionLabel,
+                  textColor: AppTheme.snoopCollarGold,
+                  onPressed: onAction,
+                )
+              : null,
+        ),
+      );
+  }
+
+  bool _isUndoBarOffscreen() {
+    if (!_scrollController.hasClients) return false;
+    if (_scrollController.offset > 120) return true;
+    final undoContext = _undoBarKey.currentContext;
+    if (undoContext == null) return false;
+    final box = undoContext.findRenderObject() as RenderBox?;
+    if (box == null || !box.attached) return false;
+    final top = box.localToGlobal(Offset.zero).dy;
+    return top + box.size.height < kToolbarHeight;
+  }
+
+  Future<void> _handleQuickTreatTap(TreatPreset preset) async {
+    final treat = await widget.viewModel.logQuickTreat(preset);
+    if (treat != null && mounted && _isUndoBarOffscreen()) {
+      _showActionSnackBar(
+        '${treat.emoji} ${treat.label} added — tap UNDO',
+        actionLabel: 'UNDO',
+        onAction: widget.viewModel.undoLastAction,
+      );
+    }
+  }
+
+  Future<void> _handleWidgetPreviewFeed() async {
+    await widget.viewModel.markPetFed();
+    if (mounted &&
+        widget.viewModel.errorMessage == null &&
+        widget.viewModel.canUndo &&
+        _isUndoBarOffscreen()) {
+      _showActionSnackBar(
+        '🥣 ${widget.viewModel.activeWindow.label} marked fed — tap UNDO',
+        actionLabel: 'UNDO',
+        onAction: widget.viewModel.undoLastAction,
+      );
     }
   }
 
@@ -119,6 +201,7 @@ class _FeederViewState extends State<FeederView> {
         onSave: (schedule, dailyTreatLimit) => widget.viewModel.updateHouseholdSettings(
           schedule: schedule,
           dailyTreatLimit: dailyTreatLimit,
+          rethrowOnError: true,
         ),
       ),
     );
@@ -143,76 +226,6 @@ class _FeederViewState extends State<FeederView> {
     return ActiveMealWindow.formatDate(DateTime(y, m, d - 1));
   }
 
-  AppBar _buildAppBar(BuildContext context, Household household, bool isFed) {
-    return AppBar(
-      titleSpacing: 16,
-      title: Row(
-        children: <Widget>[
-          SnoopMiniAvatar(size: 36, isHappy: isFed),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                Text(
-                  'Who Fed ${household.petName}?',
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w900,
-                    fontSize: 19,
-                    color: AppTheme.inkDark,
-                    letterSpacing: -0.3,
-                  ),
-                ),
-                const Text(
-                  '90 lb Black Labradoodle • Official Belly Tracker',
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 11,
-                    color: AppTheme.inkMuted,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-      actions: <Widget>[
-        Padding(
-          padding: const EdgeInsets.only(right: 14),
-          child: InkWell(
-            key: FeederView.openPackHqButtonKey,
-            borderRadius: BorderRadius.circular(999),
-            onTap: () => _openPackHq(context),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: AppTheme.comicPillDecoration(
-                color: AppTheme.snoopCollarGold,
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  const Icon(Icons.pets, size: 14, color: AppTheme.inkDark),
-                  const SizedBox(width: 5),
-                  Text(
-                    'Pack: ${household.joinCode}',
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w900,
-                      fontSize: 12,
-                      color: AppTheme.inkDark,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final viewModel = widget.viewModel;
@@ -227,8 +240,14 @@ class _FeederViewState extends State<FeederView> {
 
         final household = viewModel.household;
         if (household == null) {
-          return const Scaffold(
-            body: Center(child: Text('No household configured.')),
+          return FeederEmptyStateScaffold(
+            errorMessage: viewModel.errorMessage,
+            retryButtonKey: FeederView.retryHouseholdButtonKey,
+            onDismissError: () {
+              ScaffoldMessenger.maybeOf(context)?.hideCurrentSnackBar();
+              viewModel.dismissError();
+            },
+            onRetry: viewModel.retryHouseholdSubscription,
           );
         }
 
@@ -243,92 +262,107 @@ class _FeederViewState extends State<FeederView> {
             logicalDate == window.windowDate ? windowYesterday : _previousCalendarDate(logicalDate);
 
         return Scaffold(
-          appBar: _buildAppBar(context, household, isFed),
+          appBar: buildFeederAppBar(
+            petName: household.petName,
+            joinCode: household.joinCode,
+            isFed: isFed,
+            packHqButtonKey: FeederView.openPackHqButtonKey,
+            onOpenPackHq: () => _openPackHq(context),
+          ),
           body: SafeArea(
-            child: ListView(
-              padding: EdgeInsets.symmetric(
-                horizontal: 16,
-                vertical: isCompactHeight ? 4 : 12,
-              ),
+            child: Column(
               children: <Widget>[
-                const SnoopTraitBadges(),
-                if (viewModel.errorMessage != null) ...<Widget>[
-                  SizedBox(height: sectionGap),
-                  ErrorBanner(
-                    message: viewModel.errorMessage!,
-                    onDismiss: viewModel.dismissError,
-                  ),
-                ],
-                if (viewModel.partnerNotificationBanner != null) ...<Widget>[
-                  SizedBox(height: sectionGap),
-                  PartnerPushBanner(
-                    message: viewModel.partnerNotificationBanner!,
-                    onDismiss: viewModel.dismissPartnerBanner,
-                  ),
-                ],
-                SizedBox(height: sectionGap),
-                HeroStatusAndFeedCard(
-                  household: household,
-                  window: window,
-                  currentFeeding: currentFeeding,
-                  isFed: isFed,
-                  isLoggingMeal: viewModel.isLoggingMeal,
+                FeederPinnedBanners(
+                  errorMessage: viewModel.errorMessage,
+                  partnerBanner: viewModel.partnerNotificationBanner,
                   isCompactHeight: isCompactHeight,
-                  activeMemberName: viewModel.currentMemberName,
-                  yesterdayLogicalDate: windowYesterday,
-                  onTapFeed: () => viewModel.markPetFed(),
-                  onTapExtraMeal: () => viewModel.markPetFed(isExtraMeal: true),
-                  onOpenSchedule: () => _openHouseholdSettings(context, household),
+                  onDismissError: () {
+                    ScaffoldMessenger.maybeOf(context)?.hideCurrentSnackBar();
+                    viewModel.dismissError();
+                  },
+                  onDismissPartnerBanner: viewModel.dismissPartnerBanner,
                 ),
-                if (viewModel.canUndo) ...<Widget>[
-                  SizedBox(height: sectionGap),
-                  UndoBar(
-                    bannerText: viewModel.undoBannerText,
-                    secondsRemaining: viewModel.undoSecondsRemaining,
-                    isUndoing: viewModel.isUndoing,
-                    onUndo: viewModel.undoLastAction,
+                Expanded(
+                  child: ListView(
+                    controller: _scrollController,
+                    padding: EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: isCompactHeight ? 4 : 12,
+                    ),
+                    children: <Widget>[
+                      const SnoopTraitBadges(),
+                      SizedBox(height: sectionGap),
+                      HeroStatusAndFeedCard(
+                        household: household,
+                        window: window,
+                        currentFeeding: currentFeeding,
+                        isFed: isFed,
+                        isLoggingMeal: viewModel.isLoggingMeal,
+                        isCompactHeight: isCompactHeight,
+                        activeMemberName: viewModel.currentMemberName,
+                        yesterdayLogicalDate: windowYesterday,
+                        onTapFeed: () => viewModel.markPetFed(),
+                        onTapExtraMeal: () => viewModel.markPetFed(isExtraMeal: true),
+                        onOpenSchedule: () => _openHouseholdSettings(context, household),
+                      ),
+                      if (viewModel.canUndo || viewModel.isUndoing) ...<Widget>[
+                        SizedBox(height: sectionGap),
+                        UndoBar(
+                          key: _undoBarKey,
+                          bannerText: viewModel.undoBannerText,
+                          secondsRemaining: viewModel.undoSecondsRemaining,
+                          isUndoing: viewModel.isUndoing,
+                          onUndo: viewModel.undoLastAction,
+                        ),
+                      ],
+                      SizedBox(height: isCompactHeight ? 8 : 14),
+                      TreatJarCard(
+                        petName: household.petName,
+                        todayTreats: viewModel.todayTreats,
+                        dailyTreatLimit: viewModel.dailyTreatLimit,
+                        currentMemberUid: viewModel.currentMemberUid,
+                        isCompact: isCompactHeight,
+                        activeLoggingPreset: viewModel.activeLoggingPreset,
+                        deletingTreatIds: viewModel.deletingTreatIds,
+                        onLogPreset: _handleQuickTreatTap,
+                        onLogCustomTreat: ({
+                          required label,
+                          required quantity,
+                          required caloriesPerUnit,
+                          note,
+                        }) async {
+                          await viewModel.logCustomTreat(
+                            label: label,
+                            quantity: quantity,
+                            caloriesPerUnit: caloriesPerUnit,
+                            note: note,
+                            rethrowOnError: true,
+                          );
+                        },
+                        onDeleteTreat: viewModel.deleteTreat,
+                        onOpenSettings: () => _openHouseholdSettings(context, household),
+                      ),
+                      SizedBox(height: isCompactHeight ? 10 : 16),
+                      HomeWidgetPreviewCard(
+                        snapshot: viewModel.widgetSnapshot,
+                        isLoggingMeal: viewModel.isLoggingMeal,
+                        onTapFeed: _handleWidgetPreviewFeed,
+                      ),
+                      SizedBox(height: isCompactHeight ? 10 : 16),
+                      RecentHistorySection(
+                        petName: household.petName,
+                        isExpanded: viewModel.isHistoryExpanded,
+                        isLoadingHistory: viewModel.isLoadingHistory,
+                        onToggleExpanded: viewModel.toggleHistoryExpanded,
+                        mealEvents: viewModel.history,
+                        treatEvents: viewModel.recentTreats,
+                        currentLogicalDate: logicalDate,
+                        yesterdayLogicalDate: logYesterday,
+                      ),
+                      const SizedBox(height: 16),
+                    ],
                   ),
-                ],
-                SizedBox(height: isCompactHeight ? 8 : 14),
-                TreatJarCard(
-                  petName: household.petName,
-                  todayTreats: viewModel.todayTreats,
-                  dailyTreatLimit: viewModel.dailyTreatLimit,
-                  currentMemberUid: viewModel.currentMemberUid,
-                  isCompact: isCompactHeight,
-                  onLogPreset: viewModel.logQuickTreat,
-                  onLogCustomTreat: ({
-                    required label,
-                    required quantity,
-                    required caloriesPerUnit,
-                    note,
-                  }) =>
-                      viewModel.logCustomTreat(
-                    label: label,
-                    quantity: quantity,
-                    caloriesPerUnit: caloriesPerUnit,
-                    note: note,
-                  ),
-                  onDeleteTreat: viewModel.deleteTreat,
-                  onOpenSettings: () => _openHouseholdSettings(context, household),
                 ),
-                SizedBox(height: isCompactHeight ? 10 : 16),
-                HomeWidgetPreviewCard(
-                  snapshot: viewModel.widgetSnapshot,
-                  isLoggingMeal: viewModel.isLoggingMeal,
-                  onTapFeed: () => viewModel.markPetFed(),
-                ),
-                SizedBox(height: isCompactHeight ? 10 : 16),
-                RecentHistorySection(
-                  petName: household.petName,
-                  isExpanded: viewModel.isHistoryExpanded,
-                  onToggleExpanded: viewModel.toggleHistoryExpanded,
-                  mealEvents: viewModel.history,
-                  treatEvents: viewModel.recentTreats,
-                  currentLogicalDate: logicalDate,
-                  yesterdayLogicalDate: logYesterday,
-                ),
-                const SizedBox(height: 16),
               ],
             ),
           ),

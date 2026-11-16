@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../../core/app_theme.dart';
+import '../../feeder/view_models/feeder_view_model.dart';
 
 /// Callback signature for logging a custom treat with explicit label, count, calories, and note.
 typedef OnLogCustomTreat = Future<void> Function({
@@ -106,7 +107,7 @@ class _CustomTreatSheetState extends State<CustomTreatSheet> {
       if (mounted) {
         setState(() {
           _isSubmitting = false;
-          _localError = e.toString();
+          _localError = FeederViewModel.formatErrorMessage(e);
         });
       }
     }
@@ -169,6 +170,7 @@ class _CustomTreatSheetState extends State<CustomTreatSheet> {
             TextField(
               key: CustomTreatSheet.labelFieldKey,
               controller: _labelController,
+              enabled: !_isSubmitting,
               maxLength: 40,
               textCapitalization: TextCapitalization.words,
               style: const TextStyle(fontWeight: FontWeight.w700),
@@ -207,11 +209,13 @@ class _CustomTreatSheetState extends State<CustomTreatSheet> {
                           color: AppTheme.inkDark,
                         ),
                       ),
-                      const SizedBox(width: 8),
+                      const SizedBox(width: 4),
                       IconButton(
                         key: CustomTreatSheet.decrementQtyKey,
-                        onPressed: _quantity > 1 ? () => setState(() => _quantity -= 1) : null,
-                        visualDensity: VisualDensity.compact,
+                        onPressed: !_isSubmitting && _quantity > 1
+                            ? () => setState(() => _quantity -= 1)
+                            : null,
+                        constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
                         icon: const Icon(Icons.remove_circle_outline),
                       ),
                       Text(
@@ -224,8 +228,10 @@ class _CustomTreatSheetState extends State<CustomTreatSheet> {
                       ),
                       IconButton(
                         key: CustomTreatSheet.incrementQtyKey,
-                        onPressed: _quantity < 10 ? () => setState(() => _quantity += 1) : null,
-                        visualDensity: VisualDensity.compact,
+                        onPressed: !_isSubmitting && _quantity < 10
+                            ? () => setState(() => _quantity += 1)
+                            : null,
+                        constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
                         icon: const Icon(Icons.add_circle_outline),
                       ),
                     ],
@@ -235,6 +241,7 @@ class _CustomTreatSheetState extends State<CustomTreatSheet> {
                     child: TextField(
                       key: CustomTreatSheet.caloriesFieldKey,
                       controller: _caloriesController,
+                      enabled: !_isSubmitting,
                       keyboardType: TextInputType.number,
                       inputFormatters: <TextInputFormatter>[
                         FilteringTextInputFormatter.digitsOnly,
@@ -253,6 +260,7 @@ class _CustomTreatSheetState extends State<CustomTreatSheet> {
             TextField(
               key: CustomTreatSheet.noteFieldKey,
               controller: _noteController,
+              enabled: !_isSubmitting,
               maxLength: 140,
               style: const TextStyle(fontWeight: FontWeight.w600),
               decoration: const InputDecoration(
@@ -289,7 +297,10 @@ class _CustomTreatSheetState extends State<CustomTreatSheet> {
             FilledButton.icon(
               key: CustomTreatSheet.submitButtonKey,
               onPressed: _isSubmitting ? null : _handleSubmit,
-              icon: const Icon(Icons.pets, size: 18),
+              icon: Icon(
+                _isSubmitting ? Icons.hourglass_top : Icons.pets,
+                size: 18,
+              ),
               style: FilledButton.styleFrom(
                 backgroundColor: AppTheme.hungryPrimary,
                 foregroundColor: Colors.white,

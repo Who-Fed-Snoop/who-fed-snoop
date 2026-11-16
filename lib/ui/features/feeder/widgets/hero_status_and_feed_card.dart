@@ -115,19 +115,25 @@ class HeroStatusAndFeedCard extends StatelessWidget {
                 key: openScheduleButtonKey,
                 borderRadius: BorderRadius.circular(999),
                 onTap: onOpenSchedule,
-                child: Container(
-                  padding: pillPadding,
-                  decoration: AppTheme.comicPillDecoration(
-                    color: Colors.white,
-                    borderColor: AppTheme.inkDark,
-                    borderWidth: 1.6,
-                  ),
-                  child: Text(
-                    '⚙️ Schedule',
-                    style: TextStyle(
-                      color: AppTheme.inkDark,
-                      fontSize: labelSize,
-                      fontWeight: FontWeight.w900,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(minWidth: 48, minHeight: 44),
+                  child: Center(
+                    widthFactor: 1.0,
+                    child: Container(
+                      padding: pillPadding,
+                      decoration: AppTheme.comicPillDecoration(
+                        color: Colors.white,
+                        borderColor: AppTheme.inkDark,
+                        borderWidth: 1.6,
+                      ),
+                      child: Text(
+                        '⚙️ Schedule',
+                        style: TextStyle(
+                          color: AppTheme.inkDark,
+                          fontSize: labelSize,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
                     ),
                   ),
                 ),
@@ -197,16 +203,17 @@ class HeroStatusAndFeedCard extends StatelessWidget {
         key: bonusMealButtonKey,
         onPressed: isLoggingMeal ? null : onTapExtraMeal,
         style: TextButton.styleFrom(
-          visualDensity: VisualDensity.compact,
-          padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 8),
-          minimumSize: const Size(0, 28),
-          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          tapTargetSize: MaterialTapTargetSize.padded,
+          padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 10),
+          minimumSize: const Size(48, 44),
           foregroundColor: AppTheme.inkDark,
         ),
         child: FittedBox(
           fit: BoxFit.scaleDown,
           child: Text(
-            '🥣 Gave an extra scoop of kibble? Log bonus meal',
+            isLoggingMeal
+                ? '🥣 Logging bonus meal...'
+                : '🥣 Gave an extra scoop of kibble? Log bonus meal',
             style: TextStyle(
               fontWeight: FontWeight.w800,
               fontSize: isCompactHeight ? 12 : 13,
@@ -261,11 +268,16 @@ class HeroStatusAndFeedCard extends StatelessWidget {
         child: FilledButton.icon(
           key: feedButtonKey,
           onPressed: isLoggingMeal ? null : onTapFeed,
-          icon: Icon(Icons.pets, size: isCompactHeight ? 20 : 24),
+          icon: Icon(
+            isLoggingMeal ? Icons.hourglass_top : Icons.pets,
+            size: isCompactHeight ? 20 : 24,
+          ),
           label: FittedBox(
             fit: BoxFit.scaleDown,
             child: Text(
-              'I FED ${petName.toUpperCase()} ${window.label.toUpperCase()}',
+              isLoggingMeal
+                  ? 'LOGGING ${window.label.toUpperCase()}...'
+                  : 'I FED ${petName.toUpperCase()} ${window.label.toUpperCase()}',
               style: TextStyle(
                 fontSize: isCompactHeight ? 16 : 17.5,
                 fontWeight: FontWeight.w900,

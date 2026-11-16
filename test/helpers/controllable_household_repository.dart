@@ -15,11 +15,24 @@ class ControllableHouseholdRepository implements HouseholdRepository {
 
   Completer<void>? watchHouseholdGate;
   Completer<void>? logFeedingGate;
+  Completer<void>? logTreatGate;
+  Completer<void>? deleteTreatGate;
+  Completer<void>? updateSettingsGate;
+  Completer<void>? updateMemberNameGate;
+  Completer<void>? undoFeedingGate;
+  Completer<void>? recentHistoryGate;
   Completer<void>? joinGate;
   Completer<void>? createGate;
   bool failLogFeeding = false;
   bool failHistoryStreams = false;
+  Object? watchHouseholdError;
+  Object? logTreatError;
+  Object? deleteTreatError;
+  Object? updateSettingsError;
+  Object? updateMemberNameError;
+  Object? undoFeedingError;
   int logFeedingCalls = 0;
+  int logTreatCalls = 0;
   int updateMemberNameCalls = 0;
   int joinCallCount = 0;
   int createCallCount = 0;
@@ -29,6 +42,9 @@ class ControllableHouseholdRepository implements HouseholdRepository {
     if (watchHouseholdGate != null && !watchHouseholdGate!.isCompleted) {
       await watchHouseholdGate!.future;
     }
+    if (watchHouseholdError != null) {
+      throw watchHouseholdError!;
+    }
     yield* _delegate.watchHousehold(householdId);
   }
 
@@ -36,26 +52,28 @@ class ControllableHouseholdRepository implements HouseholdRepository {
   Stream<List<FeedingEvent>> watchRecentFeedings(
     String householdId, {
     int limit = 50,
-  }) {
-    if (failHistoryStreams) {
-      return Stream<List<FeedingEvent>>.error(
-        StateError('Simulated feedings permission error'),
-      );
+  }) async* {
+    if (recentHistoryGate != null && !recentHistoryGate!.isCompleted) {
+      await recentHistoryGate!.future;
     }
-    return _delegate.watchRecentFeedings(householdId, limit: limit);
+    if (failHistoryStreams) {
+      throw StateError('Simulated feedings permission error');
+    }
+    yield* _delegate.watchRecentFeedings(householdId, limit: limit);
   }
 
   @override
   Stream<List<TreatEvent>> watchRecentTreats(
     String householdId, {
     int limit = 50,
-  }) {
-    if (failHistoryStreams) {
-      return Stream<List<TreatEvent>>.error(
-        StateError('Simulated treats permission error'),
-      );
+  }) async* {
+    if (recentHistoryGate != null && !recentHistoryGate!.isCompleted) {
+      await recentHistoryGate!.future;
     }
-    return _delegate.watchRecentTreats(householdId, limit: limit);
+    if (failHistoryStreams) {
+      throw StateError('Simulated treats permission error');
+    }
+    yield* _delegate.watchRecentTreats(householdId, limit: limit);
   }
 
   @override
@@ -99,8 +117,15 @@ class ControllableHouseholdRepository implements HouseholdRepository {
     required String householdId,
     required String memberUid,
     required String memberName,
-  }) {
+  }) async {
     updateMemberNameCalls += 1;
+    final gate = updateMemberNameGate;
+    if (gate != null && !gate.isCompleted) {
+      await gate.future;
+    }
+    if (updateMemberNameError != null) {
+      throw updateMemberNameError!;
+    }
     return _delegate.updateMemberName(
       householdId: householdId,
       memberUid: memberUid,
@@ -115,14 +140,22 @@ class ControllableHouseholdRepository implements HouseholdRepository {
     MealSchedule? schedule,
     int? dailyTreatLimit,
     String? petName,
-  }) =>
-      _delegate.updateHouseholdSettings(
-        householdId: householdId,
-        requestingUid: requestingUid,
-        schedule: schedule,
-        dailyTreatLimit: dailyTreatLimit,
-        petName: petName,
-      );
+  }) async {
+    final gate = updateSettingsGate;
+    if (gate != null && !gate.isCompleted) {
+      await gate.future;
+    }
+    if (updateSettingsError != null) {
+      throw updateSettingsError!;
+    }
+    return _delegate.updateHouseholdSettings(
+      householdId: householdId,
+      requestingUid: requestingUid,
+      schedule: schedule,
+      dailyTreatLimit: dailyTreatLimit,
+      petName: petName,
+    );
+  }
 
   @override
   Future<FeedingEvent> logFeeding({
@@ -153,12 +186,20 @@ class ControllableHouseholdRepository implements HouseholdRepository {
     required String householdId,
     required String feedingId,
     required String requestingUid,
-  }) =>
-      _delegate.undoFeeding(
-        householdId: householdId,
-        feedingId: feedingId,
-        requestingUid: requestingUid,
-      );
+  }) async {
+    final gate = undoFeedingGate;
+    if (gate != null && !gate.isCompleted) {
+      await gate.future;
+    }
+    if (undoFeedingError != null) {
+      throw undoFeedingError!;
+    }
+    return _delegate.undoFeeding(
+      householdId: householdId,
+      feedingId: feedingId,
+      requestingUid: requestingUid,
+    );
+  }
 
   @override
   Future<TreatEvent> logTreat({
@@ -171,30 +212,47 @@ class ControllableHouseholdRepository implements HouseholdRepository {
     int quantity = 1,
     int? caloriesPerUnit,
     String? note,
-  }) =>
-      _delegate.logTreat(
-        householdId: householdId,
-        givenByUid: givenByUid,
-        givenByName: givenByName,
-        now: now,
-        preset: preset,
-        customLabel: customLabel,
-        quantity: quantity,
-        caloriesPerUnit: caloriesPerUnit,
-        note: note,
-      );
+  }) async {
+    logTreatCalls += 1;
+    final gate = logTreatGate;
+    if (gate != null && !gate.isCompleted) {
+      await gate.future;
+    }
+    if (logTreatError != null) {
+      throw logTreatError!;
+    }
+    return _delegate.logTreat(
+      householdId: householdId,
+      givenByUid: givenByUid,
+      givenByName: givenByName,
+      now: now,
+      preset: preset,
+      customLabel: customLabel,
+      quantity: quantity,
+      caloriesPerUnit: caloriesPerUnit,
+      note: note,
+    );
+  }
 
   @override
   Future<void> deleteTreat({
     required String householdId,
     required String treatId,
     required String requestingUid,
-  }) =>
-      _delegate.deleteTreat(
-        householdId: householdId,
-        treatId: treatId,
-        requestingUid: requestingUid,
-      );
+  }) async {
+    final gate = deleteTreatGate;
+    if (gate != null && !gate.isCompleted) {
+      await gate.future;
+    }
+    if (deleteTreatError != null) {
+      throw deleteTreatError!;
+    }
+    return _delegate.deleteTreat(
+      householdId: householdId,
+      treatId: treatId,
+      requestingUid: requestingUid,
+    );
+  }
 }
 
 /// Flushes two event-loop turns so async stream/Completer updates settle in unit tests.

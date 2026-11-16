@@ -105,16 +105,20 @@ class HomeWidgetPreviewCard extends StatelessWidget {
                   style: FilledButton.styleFrom(
                     backgroundColor: AppTheme.snoopCollarGold,
                     foregroundColor: AppTheme.inkDark,
-                    visualDensity: VisualDensity.compact,
+                    tapTargetSize: MaterialTapTargetSize.padded,
+                    minimumSize: const Size(64, 44),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(999),
                       side: const BorderSide(color: Colors.white, width: 1.5),
                     ),
                   ),
-                  icon: const Icon(Icons.pets, size: 14),
-                  label: const Text(
-                    'Feed',
-                    style: TextStyle(fontWeight: FontWeight.w900),
+                  icon: Icon(
+                    isLoggingMeal ? Icons.hourglass_top : Icons.pets,
+                    size: 14,
+                  ),
+                  label: Text(
+                    isLoggingMeal ? 'Logging...' : 'Feed',
+                    style: const TextStyle(fontWeight: FontWeight.w900),
                   ),
                 ),
             ],

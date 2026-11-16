@@ -248,5 +248,59 @@ void main() {
         }
       },
     );
+
+    testWidgets(
+      'HouseholdSettingsSheet displays exact thrown error inline and locks controls while saving',
+      (WidgetTester tester) async {
+        final saveCompleter = Completer<bool>();
+        var shouldThrow = true;
+
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: AppTheme.lightTheme,
+            home: Scaffold(
+              body: HouseholdSettingsSheet(
+                petName: 'Snoop',
+                initialSchedule: const MealSchedule(),
+                initialDailyTreatLimit: 4,
+                onSave: (_, __) async {
+                  if (shouldThrow) {
+                    throw StateError('[cloud_firestore/permission-denied] denied');
+                  }
+                  return saveCompleter.future;
+                },
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final saveBtn = find.byKey(HouseholdSettingsSheet.saveButtonKey);
+        await tester.ensureVisible(saveBtn);
+        await tester.tap(saveBtn);
+        await tester.pumpAndSettle();
+
+        // Sheet stays open and shows formatted permission-denied error inline
+        expect(find.byKey(HouseholdSettingsSheet.sheetKey), findsOneWidget);
+        expect(find.byKey(HouseholdSettingsSheet.validationErrorKey), findsOneWidget);
+        expect(find.textContaining('Permission denied'), findsOneWidget);
+
+        // Retry with pending future -> controls locked by AbsorbPointer during save
+        shouldThrow = false;
+        await tester.ensureVisible(saveBtn);
+        await tester.tap(saveBtn);
+        await tester.pump();
+        expect(find.text('Saving Schedule...'), findsOneWidget);
+
+        final incBtn = find.byKey(HouseholdSettingsSheet.treatLimitIncrementKey);
+        await tester.ensureVisible(incBtn);
+        await tester.tap(incBtn, warnIfMissed: false);
+        await tester.pump();
+        expect(find.text('4 / day'), findsOneWidget);
+
+        saveCompleter.complete(true);
+        await tester.pumpAndSettle();
+      },
+    );
   });
 }

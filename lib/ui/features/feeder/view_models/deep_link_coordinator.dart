@@ -2,6 +2,7 @@ import '../../../../data/repositories/household_repository.dart';
 import '../../../../domain/models/deep_link_route.dart';
 import '../../../../domain/models/household.dart';
 import '../../../../domain/models/meal_window.dart';
+import 'feeding_actions_controller.dart';
 
 typedef DeepLinkStrategy = Future<void> Function(WhofedsnoopDeepLink route);
 
@@ -10,6 +11,7 @@ class DeepLinkCoordinator {
   DeepLinkCoordinator({
     required HouseholdRepository repository,
     required bool Function() isDisposed,
+    bool Function()? isLoggingMeal,
     required Future<void> Function() waitForHouseholdLoaded,
     required Future<void> Function() waitForDeviceBound,
     required Household? Function() getHousehold,
@@ -19,7 +21,8 @@ class DeepLinkCoordinator {
     required ActiveMealWindow Function() getActiveWindow,
     required String? Function() getErrorMessage,
     required void Function(Household household) switchToLoadedHousehold,
-    required Future<bool> Function() logMealForTap,
+    Future<bool> Function()? logMealForTap,
+    Future<MealLogResult> Function()? logMealForTapDetailed,
     required Future<void> Function({
       required String joinCode,
       required String memberName,
@@ -27,8 +30,13 @@ class DeepLinkCoordinator {
     required void Function(String banner) activateSitterPersona,
     required void Function(String banner) showBanner,
     required void Function(Object error) reportError,
-  })  : _repository = repository,
+  })  : assert(
+          logMealForTap != null || logMealForTapDetailed != null,
+          'Provide either logMealForTap or logMealForTapDetailed.',
+        ),
+        _repository = repository,
         _isDisposed = isDisposed,
+        _isLoggingMeal = isLoggingMeal ?? (() => false),
         _waitForHouseholdLoaded = waitForHouseholdLoaded,
         _waitForDeviceBound = waitForDeviceBound,
         _getHousehold = getHousehold,
@@ -38,7 +46,11 @@ class DeepLinkCoordinator {
         _getActiveWindow = getActiveWindow,
         _getErrorMessage = getErrorMessage,
         _switchToLoadedHousehold = switchToLoadedHousehold,
-        _logMealForTap = logMealForTap,
+        _logMealForTapDetailed = logMealForTapDetailed ??
+            (() async {
+              final ok = await logMealForTap!();
+              return (ok: ok, wasNewlyLogged: ok, event: null);
+            }),
         _joinHousehold = joinHousehold,
         _activateSitterPersona = activateSitterPersona,
         _showBanner = showBanner,
@@ -52,6 +64,7 @@ class DeepLinkCoordinator {
 
   final HouseholdRepository _repository;
   final bool Function() _isDisposed;
+  final bool Function() _isLoggingMeal;
   final Future<void> Function() _waitForHouseholdLoaded;
   final Future<void> Function() _waitForDeviceBound;
   final Household? Function() _getHousehold;
@@ -61,7 +74,7 @@ class DeepLinkCoordinator {
   final ActiveMealWindow Function() _getActiveWindow;
   final String? Function() _getErrorMessage;
   final void Function(Household household) _switchToLoadedHousehold;
-  final Future<bool> Function() _logMealForTap;
+  final Future<MealLogResult> Function() _logMealForTapDetailed;
   final Future<void> Function({
     required String joinCode,
     required String memberName,
@@ -114,13 +127,27 @@ class DeepLinkCoordinator {
       return;
     }
 
-    final succeeded = await _logMealForTap();
+    if (_isLoggingMeal()) {
+      _showBanner('⏳ Feeding is already in progress...');
+      return;
+    }
+
+    final result = await _logMealForTapDetailed();
     if (_isDisposed()) return;
     final currentHousehold = _getHousehold();
-    if (succeeded && _getErrorMessage() == null && currentHousehold != null) {
-      _showBanner(
-        '🏷️ Instant Tap-to-Feed: Logged ${_getActiveWindow().label} for ${currentHousehold.petName}!',
-      );
+    if (result.ok && _getErrorMessage() == null && currentHousehold != null) {
+      if (result.wasNewlyLogged) {
+        _showBanner(
+          '🏷️ Instant Tap-to-Feed: Logged ${_getActiveWindow().label} for ${currentHousehold.petName}!',
+        );
+      } else {
+        final fedBy = result.event?.fedByName ??
+            currentHousehold.feedingForWindow(_getActiveWindow())?.fedByName ??
+            'someone';
+        _showBanner(
+          "ℹ️ ${currentHousehold.petName}'s ${_getActiveWindow().label} was already logged by $fedBy!",
+        );
+      }
     }
   }
 
@@ -129,6 +156,9 @@ class DeepLinkCoordinator {
       joinCode: route.targetId,
       memberName: _getCurrentMemberName(),
     );
+    if (_isDisposed()) return;
+    final petName = _getHousehold()?.petName ?? 'the pack';
+    _showBanner("🎉 Joined $petName's pack as ${_getCurrentMemberName()}!");
   }
 
   Future<void> _handleSitterGuestPass(WhofedsnoopDeepLink route) async {

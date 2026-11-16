@@ -53,6 +53,20 @@ void main() {
         );
         expect(vm.errorMessage, contains('nonexistent_household_99'));
         expect(vm.partnerNotificationBanner, isNull);
+
+        // Already-fed /tap reports 'already logged' instead of claiming a new log (#fb-006)
+        vm.dismissError();
+        await vm.handleIncomingUri(
+          Uri.parse('https://whofedsnoop.com/tap/household_snoop_01'),
+        );
+        expect(vm.partnerNotificationBanner, contains('already logged by Keni'));
+
+        // Valid /join shows confirmation banner
+        vm.dismissPartnerBanner();
+        await vm.handleIncomingUri(
+          Uri.parse('https://whofedsnoop.com/join/SNOOP4'),
+        );
+        expect(vm.partnerNotificationBanner, contains("Joined Snoop's pack"));
       },
     );
 

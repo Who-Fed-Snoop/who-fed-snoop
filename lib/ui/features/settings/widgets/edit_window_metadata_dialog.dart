@@ -96,6 +96,8 @@ class _EditWindowMetadataDialogState extends State<EditWindowMetadataDialog> {
                     }),
                     borderRadius: BorderRadius.circular(10),
                     child: Container(
+                      constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
+                      alignment: Alignment.center,
                       padding: const EdgeInsets.all(6),
                       decoration: BoxDecoration(
                         color: _emojiController.text.trim() == emoji

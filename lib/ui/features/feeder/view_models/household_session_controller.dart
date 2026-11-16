@@ -59,8 +59,12 @@ class HouseholdSessionController {
   bool _isDeviceBound = true;
   bool _hasSyncedMissingMemberOnLoad = false;
   bool _isHistoryExpanded = false;
+  bool _isLoadingHistory = false;
+  bool _feedingsFirstEventReceived = false;
+  bool _treatsFirstEventReceived = false;
   bool _isLoading = true;
   bool _isSwitchingHousehold = false;
+  bool _isSwitchingMember = false;
   bool _isDisposed = false;
 
   Household? _household;
@@ -77,7 +81,9 @@ class HouseholdSessionController {
   List<FeedingEvent> get history => _history;
   List<TreatEvent> get recentTreats => _recentTreats;
   bool get isHistoryExpanded => _isHistoryExpanded;
+  bool get isLoadingHistory => _isLoadingHistory;
   bool get isLoading => _isLoading;
+  bool get isSwitchingMember => _isSwitchingMember;
   String get householdId => _householdId;
   String get currentMemberUid => _currentMemberUid;
   String get currentMemberName => _currentMemberName;
@@ -206,31 +212,61 @@ class HouseholdSessionController {
     subscribeToHousehold(target.id, initialHousehold: target);
   }
 
-  /// Binds or switches the active phone Scoop Holder and syncs `members[uid].name`.
-  Future<void> switchActiveMember({required String uid, required String name}) async {
+  /// Re-subscribes to the active household stream (e.g. after a transient error).
+  void retryHouseholdSubscription() {
     if (_isDisposed) return;
+    subscribeToHousehold(_householdId);
+  }
+
+  /// Binds or switches the active phone Scoop Holder and syncs `members[uid].name`.
+  Future<void> switchActiveMember({
+    required String uid,
+    required String name,
+    bool rethrowOnError = false,
+  }) async {
+    if (_isDisposed || _isSwitchingMember) return;
     final cleanName = HouseholdStatePolicy.sanitizeName(
       name,
       fallback: 'Member',
       maxLength: 50,
     );
+    final previousUid = _currentMemberUid;
+    final previousName = _currentMemberName;
+    final wasBound = _isDeviceBound;
+
+    _isSwitchingMember = true;
     if (_repository is InMemoryHouseholdRepository) _currentMemberUid = uid;
-    _bindLocalMember(cleanName);
+    _currentMemberName = cleanName;
+    if (!rethrowOnError) _clearError();
     _onChanged();
 
-    await _scoopHolderStore?.saveScoopHolder(name: cleanName, uid: _currentMemberUid);
-
-    final currentHousehold = _household;
-    if (!_isDisposed && currentHousehold != null) {
-      try {
-        await _repository.updateMemberName(
-          householdId: currentHousehold.id,
-          memberUid: _currentMemberUid,
-          memberName: cleanName,
-        );
-      } on Object catch (e) {
-        _onError(e);
+    try {
+      final currentHousehold = _household;
+      if (!_isDisposed && currentHousehold != null) {
+        try {
+          await _repository.updateMemberName(
+            householdId: currentHousehold.id,
+            memberUid: _currentMemberUid,
+            memberName: cleanName,
+          );
+        } on Object catch (e) {
+          if (rethrowOnError) {
+            if (!_isDisposed) {
+              _currentMemberUid = previousUid;
+              _currentMemberName = previousName;
+              _isDeviceBound = wasBound;
+            }
+            rethrow;
+          }
+          _onError(e);
+        }
       }
+      if (_isDisposed) return;
+      _bindLocalMember(cleanName);
+      await _scoopHolderStore?.saveScoopHolder(name: cleanName, uid: _currentMemberUid);
+    } finally {
+      _isSwitchingMember = false;
+      if (!_isDisposed) _onChanged();
     }
   }
 
@@ -314,15 +350,20 @@ class HouseholdSessionController {
 
   void _subscribeToHistoryStreams(String householdId) {
     _cancelHistoryStreams();
+    _feedingsFirstEventReceived = false;
+    _treatsFirstEventReceived = false;
+    _isLoadingHistory = true;
     _historySub = _watchScoped(
       householdId,
       _repository.watchRecentFeedings(householdId),
       (events) => _history = events,
+      () => _feedingsFirstEventReceived = true,
     );
     _treatHistorySub = _watchScoped(
       householdId,
       _repository.watchRecentTreats(householdId),
       (treats) => _recentTreats = treats,
+      () => _treatsFirstEventReceived = true,
     );
   }
 
@@ -330,24 +371,35 @@ class HouseholdSessionController {
     String householdId,
     Stream<T> stream,
     void Function(T value) assign,
+    VoidCallback markLoaded,
   ) =>
       stream.listen(
         (value) {
           if (_isDisposed || _householdId != householdId) return;
           assign(value);
+          _markHistoryLoaded(markLoaded);
           _onChanged();
         },
         onError: (Object e) {
           if (_isDisposed || _householdId != householdId) return;
+          _markHistoryLoaded(markLoaded);
           _onError(e);
         },
       );
+
+  void _markHistoryLoaded(VoidCallback markLoaded) {
+    markLoaded();
+    if (_feedingsFirstEventReceived && _treatsFirstEventReceived) {
+      _isLoadingHistory = false;
+    }
+  }
 
   void _cancelHistoryStreams() {
     _historySub?.cancel();
     _treatHistorySub?.cancel();
     _historySub = null;
     _treatHistorySub = null;
+    _isLoadingHistory = false;
   }
 
   Future<void> _syncBoundMemberName(String householdId) async {

@@ -86,10 +86,15 @@ class FeederViewModel extends ChangeNotifier {
   List<FeedingEvent> get history => _session.history;
   List<TreatEvent> get recentTreats => _session.recentTreats;
   bool get isHistoryExpanded => _session.isHistoryExpanded;
+  bool get isLoadingHistory => _session.isLoadingHistory;
   bool get isLoading => _session.isLoading;
   bool get isLoggingMeal => _actions.isLoggingMeal;
   bool get isUndoing => _actions.isUndoing;
   bool get isUpdatingSettings => _actions.isUpdatingSettings;
+  bool get isLoggingTreat => _actions.isLoggingTreat;
+  TreatPreset? get activeLoggingPreset => _actions.activeLoggingPreset;
+  Set<String> get deletingTreatIds => _actions.deletingTreatIds;
+  bool get isSwitchingMember => _session.isSwitchingMember;
   String? get errorMessage => _errorMessage;
   String get currentMemberUid => _session.currentMemberUid;
   String get currentMemberName => _session.currentMemberName;
@@ -157,6 +162,9 @@ class FeederViewModel extends ChangeNotifier {
   /// only read 1 Firestore document (`households/{id}`).
   void toggleHistoryExpanded() => _session.toggleHistoryExpanded();
 
+  /// Re-subscribes to the household document stream after an initial load error.
+  void retryHouseholdSubscription() => _session.retryHouseholdSubscription();
+
   /// Primary 1-tap action: logs the current meal window for the active member.
   Future<void> markPetFed({bool isExtraMeal = false}) async {
     await _actions.markPetFed(isExtraMeal: isExtraMeal);
@@ -164,10 +172,15 @@ class FeederViewModel extends ChangeNotifier {
 
   /// Logs a 1-tap preset treat (`quantity = 1`) without affecting meal window status,
   /// pushing a non-clobbering 10-second Undo entry onto [undoStack].
-  Future<TreatEvent?> logQuickTreat(TreatPreset preset) => _actions.logTreat(
+  Future<TreatEvent?> logQuickTreat(
+    TreatPreset preset, {
+    bool rethrowOnError = false,
+  }) =>
+      _actions.logTreat(
         preset: preset,
         quantity: 1,
         caloriesPerUnit: preset.defaultCalories,
+        rethrowOnError: rethrowOnError,
       );
 
   /// Logs a custom treat with configurable label, quantity, calories, and optional note.
@@ -176,6 +189,7 @@ class FeederViewModel extends ChangeNotifier {
     int quantity = 1,
     int caloriesPerUnit = 30,
     String? note,
+    bool rethrowOnError = false,
   }) =>
       _actions.logTreat(
         preset: TreatPreset.custom,
@@ -183,27 +197,35 @@ class FeederViewModel extends ChangeNotifier {
         quantity: quantity,
         caloriesPerUnit: caloriesPerUnit,
         note: note,
+        rethrowOnError: rethrowOnError,
       );
 
   /// Deletes a specific treat from Today's Treats / history and removes any matching
   /// entry from [undoStack].
-  Future<void> deleteTreat(String treatId) => _actions.deleteTreat(treatId);
+  Future<void> deleteTreat(
+    String treatId, {
+    bool rethrowOnError = false,
+  }) =>
+      _actions.deleteTreat(treatId, rethrowOnError: rethrowOnError);
 
   /// Validates and persists custom meal windows, daily treat goal, and/or pet name.
   Future<bool> updateHouseholdSettings({
     MealSchedule? schedule,
     int? dailyTreatLimit,
     String? petName,
+    bool rethrowOnError = false,
   }) =>
       _actions.updateHouseholdSettings(
         schedule: schedule,
         dailyTreatLimit: dailyTreatLimit,
         petName: petName,
+        rethrowOnError: rethrowOnError,
       );
 
   /// Simulates the partner (e.g. Ashley when Keni is active) logging the meal
   /// from their Android phone when running in offline/demo mode.
-  Future<void> simulatePartnerFeed() => _actions.simulatePartnerFeed();
+  Future<void> simulatePartnerFeed({bool rethrowOnError = false}) =>
+      _actions.simulatePartnerFeed(rethrowOnError: rethrowOnError);
 
   void dismissPartnerBanner() {
     if (_isDisposed || _partnerNotificationBanner == null) return;
@@ -224,12 +246,28 @@ class FeederViewModel extends ChangeNotifier {
   Future<void> undoLastFeed() => undoLastAction();
 
   /// Binds or switches the active phone Scoop Holder and syncs `members[uid].name`.
-  Future<void> switchActiveMember({required String uid, required String name}) =>
-      _session.switchActiveMember(uid: uid, name: name);
+  Future<void> switchActiveMember({
+    required String uid,
+    required String name,
+    bool rethrowOnError = false,
+  }) =>
+      _session.switchActiveMember(
+        uid: uid,
+        name: name,
+        rethrowOnError: rethrowOnError,
+      );
 
   /// Binds an unbound device to a specific Scoop Holder for future cold starts.
-  Future<void> bindScoopHolder({required String uid, required String name}) =>
-      _session.switchActiveMember(uid: uid, name: name);
+  Future<void> bindScoopHolder({
+    required String uid,
+    required String name,
+    bool rethrowOnError = false,
+  }) =>
+      _session.switchActiveMember(
+        uid: uid,
+        name: name,
+        rethrowOnError: rethrowOnError,
+      );
 
   /// Creates a brand new household and switches to it.
   Future<void> createNewHousehold({required String memberName, required String petName}) =>
@@ -280,6 +318,7 @@ class FeederViewModel extends ChangeNotifier {
       DeepLinkCoordinator(
         repository: repository,
         isDisposed: () => _isDisposed,
+        isLoggingMeal: () => _actions.isLoggingMeal,
         waitForHouseholdLoaded: _session.waitForHouseholdLoaded,
         waitForDeviceBound: _session.waitForDeviceBound,
         getHousehold: () => _session.household,
@@ -289,7 +328,7 @@ class FeederViewModel extends ChangeNotifier {
         getActiveWindow: () => activeWindow,
         getErrorMessage: () => _errorMessage,
         switchToLoadedHousehold: _session.switchToLoadedHousehold,
-        logMealForTap: () => _actions.markPetFed(isExtraMeal: false),
+        logMealForTapDetailed: () => _actions.markPetFedDetailed(isExtraMeal: false),
         joinHousehold: _session.joinHousehold,
         activateSitterPersona: (banner) {
           _session.activateSitterPersona();
@@ -322,15 +361,30 @@ class FeederViewModel extends ChangeNotifier {
     if (!_isDisposed) notifyListeners();
   }
 
+  /// Formats thrown errors into concise user-facing text while preserving key details.
+  static String formatErrorMessage(Object error) {
+    var text = error.toString().trim();
+    for (final prefix in const <String>[
+      'Bad state: ',
+      'Invalid argument(s): ',
+      'Exception: ',
+    ]) {
+      if (text.startsWith(prefix)) {
+        text = text.substring(prefix.length).trim();
+      }
+    }
+    if (text.contains('permission-denied')) {
+      return 'Permission denied — unable to save to pack cloud ($text).';
+    }
+    if (text.contains('[cloud_firestore/unavailable]') || text.contains('unavailable')) {
+      return 'Network unavailable — could not reach pack cloud ($text).';
+    }
+    return text;
+  }
+
   void _captureError(Object error) {
     if (_isDisposed) return;
-    var text = error.toString();
-    if (text.startsWith('Bad state: ')) {
-      text = text.substring('Bad state: '.length);
-    } else if (text.startsWith('Invalid argument(s): ')) {
-      text = text.substring('Invalid argument(s): '.length);
-    }
-    _errorMessage = text;
+    _errorMessage = formatErrorMessage(error);
     notifyListeners();
   }
 

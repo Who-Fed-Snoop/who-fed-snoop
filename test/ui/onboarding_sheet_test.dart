@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:who_fed_snoop/data/repositories/household_repository.dart';
 import 'package:who_fed_snoop/domain/models/meal_window.dart';
@@ -263,6 +264,59 @@ void main() {
       expect(gatedRepo.joinCallCount, equals(1));
       expect(find.byType(OnboardingSheet), findsNothing);
       expect(find.byKey(OnboardingTestHostScreen.rootScreenKey), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'Scoop Holder error surfaces inline in OnboardingSheet and Smart Link copy shows inline banner',
+    (WidgetTester tester) async {
+      final fixedNow = DateTime(2026, 11, 8, 9, 30);
+      final controlled = ControllableHouseholdRepository(
+        InMemoryHouseholdRepository(initialClock: fixedNow),
+      )..updateMemberNameError = StateError('[cloud_firestore/permission-denied] denied');
+      final viewModel = createOnboardingTestViewModel(
+        repository: controlled,
+        now: fixedNow,
+      );
+      addTearDown(viewModel.dispose);
+
+      await mountAndOpenOnboarding(tester, viewModel);
+
+      // Tapping Ashley while updateMemberName fails renders error inline inside ScoopHolderCard
+      await tester.tap(find.byKey(OnboardingSheet.ashleyPersonaChipKey));
+      await tester.pumpAndSettle();
+      expect(find.byKey(OnboardingSheet.scoopHolderErrorBannerKey), findsOneWidget);
+      expect(find.textContaining('Permission denied'), findsOneWidget);
+      expect(viewModel.errorMessage, isNull);
+
+      // Tapping a Smart Link shows inline copied confirmation inside the sheet
+      String? copiedText;
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (MethodCall methodCall) async {
+          if (methodCall.method == 'Clipboard.setData') {
+            final args = methodCall.arguments as Map<Object?, Object?>?;
+            copiedText = args?['text'] as String?;
+          }
+          return null;
+        },
+      );
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform,
+          null,
+        ),
+      );
+
+      final partnerLinkTitle = find.text('Partner Invite Link');
+      await tester.ensureVisible(partnerLinkTitle);
+      await tester.pumpAndSettle();
+      await tester.tap(partnerLinkTitle);
+      await tester.pumpAndSettle();
+
+      expect(copiedText, contains('/join/SNOOP4'));
+      expect(find.byKey(OnboardingSheet.smartLinkCopiedBannerKey), findsOneWidget);
+      expect(find.textContaining('Copied Partner Invite Link!'), findsOneWidget);
     },
   );
 }

@@ -301,5 +301,75 @@ void main() {
         expect(vm.isCurrentWindowFed, isFalse);
       },
     );
+
+    test(
+      'in-flight flags notify on start and finally, and failed undo/delete preserves Undo stack',
+      () async {
+        final fixedNow = DateTime(2026, 11, 8, 9, 0);
+        final inner = InMemoryHouseholdRepository(initialClock: fixedNow);
+        final controlled = ControllableHouseholdRepository(inner);
+        final vm = FeederViewModel(
+          repository: controlled,
+          widgetSyncService: WidgetSyncService(),
+          clock: () => fixedNow,
+        );
+        addTearDown(() {
+          vm.dispose();
+          inner.dispose();
+        });
+        await flushMicrotasks();
+
+        final mealStates = <bool>[];
+        final treatStates = <bool>[];
+        final undoStates = <bool>[];
+        vm.addListener(() {
+          mealStates.add(vm.isLoggingMeal);
+          treatStates.add(vm.isLoggingTreat);
+          undoStates.add(vm.isUndoing);
+        });
+
+        // 1. Meal in-flight notifies true -> false
+        controlled.logFeedingGate = Completer<void>();
+        final mealFuture = vm.markPetFed();
+        await flushMicrotasks();
+        expect(vm.isLoggingMeal, isTrue);
+        controlled.logFeedingGate!.complete();
+        await mealFuture;
+        expect(vm.isLoggingMeal, isFalse);
+        expect(mealStates, containsAllInOrder(<bool>[true, false]));
+
+        // 2. Failed undo preserves pendingUndoCount so user can retry
+        controlled.undoFeedingError = StateError('[cloud_firestore/permission-denied] denied');
+        await vm.undoLastAction();
+        expect(vm.isUndoing, isFalse);
+        expect(undoStates.last, isFalse);
+        expect(vm.pendingUndoCount, equals(1));
+        expect(vm.errorMessage, contains('Permission denied'));
+
+        // Retry undo succeeds
+        controlled.undoFeedingError = null;
+        await vm.undoLastAction();
+        expect(vm.pendingUndoCount, equals(0));
+        expect(vm.isCurrentWindowFed, isFalse);
+
+        // 3. Treat in-flight notifies true -> false and failed deleteTreat keeps Undo entry
+        controlled.logTreatGate = Completer<void>();
+        final treatFuture = vm.logQuickTreat(TreatPreset.dentalChew);
+        await flushMicrotasks();
+        expect(vm.isLoggingTreat, isTrue);
+        expect(vm.activeLoggingPreset, equals(TreatPreset.dentalChew));
+        controlled.logTreatGate!.complete();
+        final treat = await treatFuture;
+        expect(treat, isNotNull);
+        expect(vm.isLoggingTreat, isFalse);
+        expect(vm.activeLoggingPreset, isNull);
+        expect(treatStates, containsAllInOrder(<bool>[true, false]));
+
+        controlled.deleteTreatError = StateError('network error');
+        await vm.deleteTreat(treat!.id);
+        expect(vm.deletingTreatIds, isEmpty);
+        expect(vm.pendingUndoCount, equals(1));
+      },
+    );
   });
 }

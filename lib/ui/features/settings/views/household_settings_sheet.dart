@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../../domain/models/meal_window.dart';
 import '../../../core/app_theme.dart';
+import '../../feeder/view_models/feeder_view_model.dart';
 import '../widgets/cycle_preview_card.dart';
 import '../widgets/edit_window_metadata_dialog.dart';
 import '../widgets/settings_cards.dart';
@@ -235,7 +236,7 @@ class _HouseholdSettingsSheetState extends State<HouseholdSettingsSheet> {
       if (mounted) {
         setState(() {
           _isSaving = false;
-          _submitError = e.toString();
+          _submitError = FeederViewModel.formatErrorMessage(e);
         });
       }
     }
@@ -302,22 +303,33 @@ class _HouseholdSettingsSheetState extends State<HouseholdSettingsSheet> {
                 ),
               ],
               const SizedBox(height: 14),
-              MealWindowsSection(
-                windows: _windows,
-                todayLoggedWindowIds: widget.todayLoggedWindowIds,
-                onToggleWindow: (id, enabled) =>
-                    _updateWindow(id, (w) => w.copyWith(enabled: enabled)),
-                onPickWindowTime: _pickWindowTime,
-                onEditWindowMetadata: _editWindowMetadata,
-                onDeleteWindow: _deleteWindow,
-                onAddPresetWindow: _addPresetWindow,
-                onAddCustomWindow: _addCustomWindow,
-              ),
-              const SizedBox(height: 16),
-              DailyTreatAllowanceCard(
-                petName: widget.petName,
-                dailyTreatLimit: _dailyTreatLimit,
-                onChanged: (value) => setState(() => _dailyTreatLimit = value),
+              AbsorbPointer(
+                absorbing: _isSaving,
+                child: Opacity(
+                  opacity: _isSaving ? 0.65 : 1.0,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: <Widget>[
+                      MealWindowsSection(
+                        windows: _windows,
+                        todayLoggedWindowIds: widget.todayLoggedWindowIds,
+                        onToggleWindow: (id, enabled) =>
+                            _updateWindow(id, (w) => w.copyWith(enabled: enabled)),
+                        onPickWindowTime: _pickWindowTime,
+                        onEditWindowMetadata: _editWindowMetadata,
+                        onDeleteWindow: _deleteWindow,
+                        onAddPresetWindow: _addPresetWindow,
+                        onAddCustomWindow: _addCustomWindow,
+                      ),
+                      const SizedBox(height: 16),
+                      DailyTreatAllowanceCard(
+                        petName: widget.petName,
+                        dailyTreatLimit: _dailyTreatLimit,
+                        onChanged: (value) => setState(() => _dailyTreatLimit = value),
+                      ),
+                    ],
+                  ),
+                ),
               ),
               if (validationMsg != null) ...<Widget>[
                 const SizedBox(height: 12),
@@ -338,7 +350,10 @@ class _HouseholdSettingsSheetState extends State<HouseholdSettingsSheet> {
               FilledButton.icon(
                 key: HouseholdSettingsSheet.saveButtonKey,
                 onPressed: _isSaving ? null : _handleSave,
-                icon: const Icon(Icons.check_circle_outline, size: 19),
+                icon: Icon(
+                  _isSaving ? Icons.hourglass_top : Icons.check_circle_outline,
+                  size: 19,
+                ),
                 style: FilledButton.styleFrom(
                   backgroundColor: AppTheme.fedPrimary,
                   foregroundColor: Colors.white,

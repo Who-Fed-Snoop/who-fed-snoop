@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -10,6 +12,8 @@ import 'package:who_fed_snoop/ui/features/feeder/view_models/feeder_view_model.d
 import 'package:who_fed_snoop/ui/features/feeder/views/feeder_view.dart';
 import 'package:who_fed_snoop/ui/features/onboarding/views/scoop_holder_prompt_dialog.dart';
 import 'package:who_fed_snoop/ui/features/treats/views/treat_jar_card.dart';
+
+import '../helpers/controllable_household_repository.dart';
 
 void main() {
   Future<void> bringIntoView(WidgetTester tester, Finder target) async {
@@ -344,6 +348,113 @@ void main() {
         expect(find.textContaining('1 tap logs as Ashley'), findsOneWidget);
         expect(tester.takeException(), isNull);
       }
+    },
+  );
+
+  testWidgets(
+    'Scrolled Dental Chew permission-denied stays visible via pinned ErrorBanner + SnackBar, CustomTreatSheet & ScoopHolderPrompt stay open on error, and history/startup errors recover',
+    (WidgetTester tester) async {
+      tester.view.physicalSize = const Size(360, 800);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+
+      final fixedNow = DateTime(2026, 11, 8, 9, 30);
+      final inner = InMemoryHouseholdRepository(initialClock: fixedNow);
+      final controlled = ControllableHouseholdRepository(inner)
+        ..logTreatError = StateError('[cloud_firestore/permission-denied] denied')
+        ..recentHistoryGate = Completer<void>();
+      addTearDown(inner.dispose);
+
+      final vm = FeederViewModel(
+        repository: controlled,
+        widgetSyncService: WidgetSyncService(),
+        clock: () => fixedNow,
+      );
+      addTearDown(vm.dispose);
+
+      await tester.pumpWidget(WhoFedSnoopApp(viewModel: vm));
+      await tester.pumpAndSettle();
+
+      // 1. Scroll down to TreatJarCard and tap Dental Chew when gated -> finite 'Logging...' state,
+      // then failure shows pinned ErrorBanner + SnackBar WITHOUT scrolling back up!
+      controlled.logTreatGate = Completer<void>();
+      final dentalChip = find.byKey(
+        TreatJarCard.presetChipKey(TreatPreset.dentalChew),
+      );
+      await bringIntoView(tester, dentalChip);
+      await tester.tap(dentalChip);
+      await tester.pump();
+      expect(find.text('Logging...'), findsOneWidget);
+
+      controlled.logTreatGate!.complete();
+      await tester.pumpAndSettle();
+      expect(find.byKey(FeederView.errorBannerKey), findsOneWidget);
+      expect(find.byType(SnackBar), findsOneWidget);
+      expect(find.textContaining('Permission denied'), findsWidgets);
+
+      // Dismiss ErrorBanner cleanly
+      await tester.tap(find.byKey(FeederView.dismissErrorButtonKey));
+      await tester.pumpAndSettle();
+      expect(find.byKey(FeederView.errorBannerKey), findsNothing);
+
+      // 2. CustomTreatSheet keeps sheet open + preserves input on repository failure
+      controlled.logTreatGate = null;
+      final customBtn = find.byKey(TreatJarCard.customTreatButtonKey);
+      await bringIntoView(tester, customBtn);
+      await tester.tap(customBtn);
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        find.byKey(CustomTreatSheet.labelFieldKey),
+        'Salmon Jerky',
+      );
+      final submitCustom = find.byKey(CustomTreatSheet.submitButtonKey);
+      await tester.ensureVisible(submitCustom);
+      await tester.tap(submitCustom);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(CustomTreatSheet), findsOneWidget);
+      expect(find.textContaining('Permission denied'), findsOneWidget);
+      expect(find.text('Salmon Jerky'), findsOneWidget);
+      expect(vm.errorMessage, isNull);
+      Navigator.of(tester.element(find.byType(CustomTreatSheet))).pop();
+      await tester.pumpAndSettle();
+
+      // 3. RecentHistorySection shows finite loading card while streams are pending
+      final toggleHistory = find.byKey(FeederView.toggleHistoryButtonKey);
+      await bringIntoView(tester, toggleHistory);
+      await tester.tap(toggleHistory);
+      await tester.pumpAndSettle();
+      expect(find.byKey(RecentHistorySection.loadingCardKey), findsOneWidget);
+
+      controlled.recentHistoryGate!.complete();
+      await tester.pumpAndSettle();
+      expect(find.byKey(RecentHistorySection.loadingCardKey), findsNothing);
+
+      // 4. Startup household == null error renders ErrorBanner + Retry and recovers on retry
+      final startupRepo = ControllableHouseholdRepository(inner)
+        ..watchHouseholdError = StateError('[cloud_firestore/permission-denied] denied');
+      final vmStartup = FeederViewModel(
+        repository: startupRepo,
+        widgetSyncService: WidgetSyncService(),
+        clock: () => fixedNow,
+      );
+      addTearDown(vmStartup.dispose);
+
+      await tester.pumpWidget(
+        WhoFedSnoopApp(key: const ValueKey<String>('startup_err'), viewModel: vmStartup),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byKey(FeederView.errorBannerKey), findsOneWidget);
+      expect(find.byKey(FeederView.retryHouseholdButtonKey), findsOneWidget);
+
+      startupRepo.watchHouseholdError = null;
+      await tester.tap(find.byKey(FeederView.retryHouseholdButtonKey));
+      await tester.pumpAndSettle();
+      expect(find.text('Snoop needs Breakfast'), findsOneWidget);
     },
   );
 }

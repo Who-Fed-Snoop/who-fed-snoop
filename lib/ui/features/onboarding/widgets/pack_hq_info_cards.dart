@@ -112,11 +112,11 @@ class ScheduleAndTreatGoalCard extends StatelessWidget {
                   backgroundColor: AppTheme.snoopCollarGold,
                   foregroundColor: AppTheme.snoopCoatBlack,
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 8,
+                    horizontal: 14,
+                    vertical: 10,
                   ),
-                  minimumSize: const Size(0, 36),
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  minimumSize: const Size(56, 44),
+                  tapTargetSize: MaterialTapTargetSize.padded,
                   side: const BorderSide(color: AppTheme.inkDark, width: 1.8),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
@@ -142,12 +142,16 @@ class PackHqSmartLinksSection extends StatelessWidget {
     required this.joinUri,
     required this.nfcTapUri,
     required this.sitterUri,
+    this.copiedBannerMessage,
     required this.onCopyLink,
   });
+
+  static const Key copiedBannerKey = ValueKey<String>('smart_link_copied_banner');
 
   final Uri joinUri;
   final Uri nfcTapUri;
   final Uri sitterUri;
+  final String? copiedBannerMessage;
   final void Function(String label, Uri uri) onCopyLink;
 
   @override
@@ -186,6 +190,40 @@ class PackHqSmartLinksSection extends StatelessWidget {
             ),
           ],
         ),
+        if (copiedBannerMessage != null) ...<Widget>[
+          const SizedBox(height: 10),
+          Container(
+            key: copiedBannerKey,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: AppTheme.comicCardDecoration(
+              color: AppTheme.fedSurface,
+              borderColor: AppTheme.inkDark,
+              borderRadius: 12,
+              borderWidth: 1.8,
+              shadowOffset: 2,
+            ),
+            child: Row(
+              children: <Widget>[
+                const Icon(
+                  Icons.check_circle_outline,
+                  size: 16,
+                  color: AppTheme.fedPrimary,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    copiedBannerMessage!,
+                    style: const TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w800,
+                      color: AppTheme.inkDark,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
         const SizedBox(height: 10),
         SmartPassCard(
           icon: Icons.person_add_alt_1_outlined,

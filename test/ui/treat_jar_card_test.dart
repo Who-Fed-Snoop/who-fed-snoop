@@ -280,5 +280,68 @@ void main() {
         }
       },
     );
+
+    testWidgets(
+      'TreatJarCard shows finite in-flight states for activeLoggingPreset and deletingTreatIds',
+      (WidgetTester tester) async {
+        var tappedPresets = 0;
+        var deleteCalls = 0;
+
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: AppTheme.lightTheme,
+            home: Scaffold(
+              body: TreatJarCard(
+                petName: 'Snoop',
+                todayTreats: <TreatEvent>[
+                  TreatEvent(
+                    id: 'tr_busy',
+                    preset: TreatPreset.dentalChew,
+                    label: 'Dental Chew',
+                    emoji: '🪥',
+                    quantity: 1,
+                    caloriesPerUnit: 85,
+                    logicalDate: '2026-11-08',
+                    givenByUid: 'uid_keni',
+                    givenByName: 'Keni',
+                    givenAt: DateTime(2026, 11, 8, 12, 0),
+                  ),
+                ],
+                dailyTreatLimit: 4,
+                currentMemberUid: 'uid_keni',
+                activeLoggingPreset: TreatPreset.dentalChew,
+                deletingTreatIds: const <String>{'tr_busy'},
+                onLogPreset: (_) => tappedPresets += 1,
+                onLogCustomTreat: ({
+                  required label,
+                  required quantity,
+                  required caloriesPerUnit,
+                  note,
+                }) async {},
+                onDeleteTreat: (_) => deleteCalls += 1,
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text('Logging...'), findsOneWidget);
+        await tester.tap(
+          find.byKey(TreatJarCard.presetChipKey(TreatPreset.trainingTreat)),
+        );
+        await tester.tap(
+          find.byKey(TreatJarCard.presetChipKey(TreatPreset.dentalChew)),
+        );
+        expect(tappedPresets, equals(0));
+
+        await tester.tap(find.byKey(TreatJarCard.drawerToggleKey));
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.byKey(TreatJarCard.deleteTreatButtonKey('tr_busy')),
+        );
+        expect(deleteCalls, equals(0));
+        expect(find.byIcon(Icons.hourglass_top), findsOneWidget);
+      },
+    );
   });
 }

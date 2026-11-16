@@ -2,9 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:who_fed_snoop/data/repositories/household_repository.dart';
 import 'package:who_fed_snoop/data/services/scoop_holder_store.dart';
+import 'package:who_fed_snoop/data/services/widget_sync_service.dart';
+import 'package:who_fed_snoop/main.dart';
+import 'package:who_fed_snoop/ui/features/feeder/view_models/feeder_view_model.dart';
 import 'package:who_fed_snoop/ui/features/onboarding/views/onboarding_sheet.dart';
+import 'package:who_fed_snoop/ui/features/onboarding/views/scoop_holder_prompt_dialog.dart';
 import 'package:who_fed_snoop/ui/features/settings/views/household_settings_sheet.dart';
 
+import '../helpers/controllable_household_repository.dart';
 import '../helpers/onboarding_test_harness.dart';
 
 void main() {
@@ -130,6 +135,36 @@ void main() {
         viewModel.household?.members[viewModel.currentMemberUid]?.name,
         equals('Grandma'),
       );
+    },
+  );
+
+  testWidgets(
+    'ScoopHolderPromptDialog stays open and displays inline error when member sync fails',
+    (WidgetTester tester) async {
+      final fixedNow = DateTime(2026, 11, 8, 9, 30);
+      final inner = InMemoryHouseholdRepository(initialClock: fixedNow);
+      final promptRepo = ControllableHouseholdRepository(inner)
+        ..updateMemberNameError = StateError('[cloud_firestore/permission-denied] denied');
+      final vmPrompt = FeederViewModel(
+        repository: promptRepo,
+        widgetSyncService: WidgetSyncService(),
+        scoopHolderStore: InMemoryScoopHolderStore(),
+        clock: () => fixedNow,
+      );
+      addTearDown(() {
+        vmPrompt.dispose();
+        inner.dispose();
+      });
+
+      await tester.pumpWidget(WhoFedSnoopApp(viewModel: vmPrompt));
+      await tester.pumpAndSettle();
+      expect(find.byKey(ScoopHolderPromptDialog.dialogKey), findsOneWidget);
+
+      await tester.tap(find.byKey(ScoopHolderPromptDialog.ashleyButtonKey));
+      await tester.pumpAndSettle();
+      expect(find.byKey(ScoopHolderPromptDialog.dialogKey), findsOneWidget);
+      expect(find.byKey(ScoopHolderPromptDialog.errorTextKey), findsOneWidget);
+      expect(find.textContaining('Permission denied'), findsOneWidget);
     },
   );
 }

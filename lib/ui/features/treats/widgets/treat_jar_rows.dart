@@ -11,6 +11,8 @@ class QuickTreatChip extends StatelessWidget {
     required this.label,
     this.calories,
     required this.backgroundColor,
+    this.isLoading = false,
+    this.enabled = true,
     required this.onTap,
   });
 
@@ -18,47 +20,63 @@ class QuickTreatChip extends StatelessWidget {
   final String label;
   final int? calories;
   final Color backgroundColor;
+  final bool isLoading;
+  final bool enabled;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(999),
-        child: Ink(
-          padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
-          decoration: AppTheme.comicPillDecoration(
-            color: backgroundColor,
-            borderColor: AppTheme.inkDark,
-            borderWidth: 1.8,
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              Text(emoji, style: const TextStyle(fontSize: 13)),
-              const SizedBox(width: 5),
-              Text(
-                label,
-                style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w900,
-                  color: AppTheme.inkDark,
+    final isInteractive = enabled && !isLoading;
+    final chipOpacity = isLoading ? 0.85 : (enabled ? 1.0 : 0.55);
+
+    return Opacity(
+      opacity: chipOpacity,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: isInteractive ? onTap : null,
+          borderRadius: BorderRadius.circular(999),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minWidth: 48, minHeight: 44),
+            child: Center(
+              widthFactor: 1.0,
+              child: Ink(
+                padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
+                decoration: AppTheme.comicPillDecoration(
+                  color: isLoading
+                      ? AppTheme.snoopCollarGold.withValues(alpha: 0.45)
+                      : backgroundColor,
+                  borderColor: AppTheme.inkDark,
+                  borderWidth: 1.8,
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    Text(isLoading ? '⏳' : emoji, style: const TextStyle(fontSize: 13)),
+                    const SizedBox(width: 5),
+                    Text(
+                      isLoading ? 'Logging...' : label,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w900,
+                        color: AppTheme.inkDark,
+                      ),
+                    ),
+                    if (!isLoading && calories != null) ...<Widget>[
+                      const SizedBox(width: 4),
+                      Text(
+                        '${calories}c',
+                        style: const TextStyle(
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.w700,
+                          color: AppTheme.inkMuted,
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               ),
-              if (calories != null) ...<Widget>[
-                const SizedBox(width: 4),
-                Text(
-                  '${calories}c',
-                  style: const TextStyle(
-                    fontSize: 10.5,
-                    fontWeight: FontWeight.w700,
-                    color: AppTheme.inkMuted,
-                  ),
-                ),
-              ],
-            ],
+            ),
           ),
         ),
       ),
@@ -72,11 +90,13 @@ class TodayTreatRow extends StatelessWidget {
     super.key,
     required this.treat,
     required this.timeString,
+    this.isDeleting = false,
     required this.onDelete,
   });
 
   final TreatEvent treat;
   final String timeString;
+  final bool isDeleting;
   final VoidCallback onDelete;
 
   static ValueKey<String> deleteButtonKey(String treatId) =>
@@ -139,13 +159,13 @@ class TodayTreatRow extends StatelessWidget {
           ),
           IconButton(
             key: deleteButtonKey(treat.id),
-            onPressed: onDelete,
-            tooltip: 'Delete treat',
-            visualDensity: VisualDensity.compact,
-            icon: const Icon(
-              Icons.delete_outline,
+            onPressed: isDeleting ? null : onDelete,
+            tooltip: isDeleting ? 'Deleting treat...' : 'Delete treat',
+            constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+            icon: Icon(
+              isDeleting ? Icons.hourglass_top : Icons.delete_outline,
               size: 19,
-              color: AppTheme.inkDark,
+              color: isDeleting ? AppTheme.inkMuted : AppTheme.inkDark,
             ),
           ),
         ],

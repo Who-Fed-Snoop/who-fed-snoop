@@ -98,7 +98,7 @@ class MealWindowsSection extends StatelessWidget {
                     style: const TextStyle(fontSize: 13),
                   ),
                   label: Text('+ ${preset.label}'),
-                  visualDensity: VisualDensity.compact,
+                  materialTapTargetSize: MaterialTapTargetSize.padded,
                   onPressed: () => onAddPresetWindow(preset),
                 ),
               ActionChip(
@@ -109,7 +109,7 @@ class MealWindowsSection extends StatelessWidget {
                   color: AppTheme.inkDark,
                 ),
                 label: const Text('+ Custom Window'),
-                visualDensity: VisualDensity.compact,
+                materialTapTargetSize: MaterialTapTargetSize.padded,
                 backgroundColor: AppTheme.snoopCollarGold.withValues(
                   alpha: 0.35,
                 ),
@@ -226,11 +226,12 @@ class WindowConfigCard extends StatelessWidget {
                 key: timeButtonKey(config.id),
                 onPressed: onPickTime,
                 style: OutlinedButton.styleFrom(
-                  visualDensity: VisualDensity.compact,
+                  tapTargetSize: MaterialTapTargetSize.padded,
+                  minimumSize: const Size(48, 44),
                   backgroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(
                     horizontal: 10,
-                    vertical: 4,
+                    vertical: 6,
                   ),
                 ),
                 icon: const Icon(Icons.schedule, size: 15),
@@ -249,7 +250,7 @@ class WindowConfigCard extends StatelessWidget {
                     key: editButtonKey(config.id),
                     onPressed: onEditMetadata,
                     tooltip: 'Rename window or change emoji',
-                    visualDensity: VisualDensity.compact,
+                    constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
                     icon: const Icon(Icons.edit_outlined, size: 18),
                   ),
                   if (canDelete)
@@ -257,7 +258,7 @@ class WindowConfigCard extends StatelessWidget {
                       key: deleteButtonKey(config.id),
                       onPressed: onDelete,
                       tooltip: 'Remove window',
-                      visualDensity: VisualDensity.compact,
+                      constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
                       icon: const Icon(Icons.delete_outline, size: 18),
                     ),
                 ],

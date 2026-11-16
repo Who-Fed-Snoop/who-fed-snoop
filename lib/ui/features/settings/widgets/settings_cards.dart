@@ -102,7 +102,7 @@ class DailyTreatAllowanceCard extends StatelessWidget {
                   IconButton(
                     key: decrementKey,
                     onPressed: dailyTreatLimit > 1 ? () => onChanged(dailyTreatLimit - 1) : null,
-                    visualDensity: VisualDensity.compact,
+                    constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
                     icon: const Icon(Icons.remove_circle_outline),
                   ),
                   Container(
@@ -127,7 +127,7 @@ class DailyTreatAllowanceCard extends StatelessWidget {
                   IconButton(
                     key: incrementKey,
                     onPressed: dailyTreatLimit < 20 ? () => onChanged(dailyTreatLimit + 1) : null,
-                    visualDensity: VisualDensity.compact,
+                    constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
                     icon: const Icon(Icons.add_circle_outline),
                   ),
                 ],

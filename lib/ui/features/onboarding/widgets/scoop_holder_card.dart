@@ -11,14 +11,18 @@ class ScoopHolderCard extends StatelessWidget {
     super.key,
     required this.viewModel,
     required this.enabled,
+    this.errorMessage,
     required this.onSelectMember,
     required this.onCustomName,
+    this.onSimulatePartner,
   });
 
   final FeederViewModel viewModel;
   final bool enabled;
+  final String? errorMessage;
   final Future<void> Function({required String uid, required String name}) onSelectMember;
   final VoidCallback onCustomName;
+  final VoidCallback? onSimulatePartner;
 
   static const Key cardKey = ValueKey<String>('pack_hq_scoop_holder_card');
   static const Key keniChipKey = ValueKey<String>('pack_hq_keni_chip');
@@ -32,6 +36,7 @@ class ScoopHolderCard extends StatelessWidget {
   static const Key simulatePartnerButtonKey = ValueKey<String>(
     'simulate_partner_button',
   );
+  static const Key errorBannerKey = ValueKey<String>('scoop_holder_error_banner');
 
   @override
   Widget build(BuildContext context) {
@@ -40,6 +45,7 @@ class ScoopHolderCard extends StatelessWidget {
     final isAshley = normalizedName == 'ashley';
     final isCustomOrSitter = !isKeni && !isAshley;
     final partnerName = isKeni ? 'Ashley' : 'Keni';
+    final isInteractive = enabled && !viewModel.isSwitchingMember;
 
     return Container(
       key: cardKey,
@@ -74,7 +80,9 @@ class ScoopHolderCard extends StatelessWidget {
                   borderWidth: 1.5,
                 ),
                 child: Text(
-                  'Bound: ${viewModel.currentMemberName}',
+                  viewModel.isSwitchingMember
+                      ? 'Saving...'
+                      : 'Bound: ${viewModel.currentMemberName}',
                   style: const TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w900,
@@ -103,8 +111,8 @@ class ScoopHolderCard extends StatelessWidget {
                 key: keniChipKey,
                 label: const Text('Keni'),
                 selected: isKeni,
-                visualDensity: VisualDensity.compact,
-                onSelected: enabled
+                materialTapTargetSize: MaterialTapTargetSize.padded,
+                onSelected: isInteractive
                     ? (_) => onSelectMember(
                           uid: InMemoryHouseholdRepository.keniUid,
                           name: 'Keni',
@@ -115,8 +123,8 @@ class ScoopHolderCard extends StatelessWidget {
                 key: ashleyChipKey,
                 label: const Text('Ashley'),
                 selected: isAshley,
-                visualDensity: VisualDensity.compact,
-                onSelected: enabled
+                materialTapTargetSize: MaterialTapTargetSize.padded,
+                onSelected: isInteractive
                     ? (_) => onSelectMember(
                           uid: InMemoryHouseholdRepository.ashleyUid,
                           name: 'Ashley',
@@ -130,7 +138,7 @@ class ScoopHolderCard extends StatelessWidget {
                     viewModel.isSitterMode ? '🐾 Dog Sitter' : viewModel.currentMemberName,
                   ),
                   selected: true,
-                  visualDensity: VisualDensity.compact,
+                  materialTapTargetSize: MaterialTapTargetSize.padded,
                   onSelected: (_) {},
                 ),
               ActionChip(
@@ -141,20 +149,44 @@ class ScoopHolderCard extends StatelessWidget {
                   color: AppTheme.inkDark,
                 ),
                 label: const Text('Custom'),
-                visualDensity: VisualDensity.compact,
-                onPressed: enabled ? onCustomName : null,
+                materialTapTargetSize: MaterialTapTargetSize.padded,
+                onPressed: isInteractive ? onCustomName : null,
               ),
             ],
           ),
+          if (errorMessage != null) ...<Widget>[
+            const SizedBox(height: 8),
+            Container(
+              key: errorBannerKey,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: AppTheme.comicCardDecoration(
+                color: AppTheme.snoopTonguePink.withValues(alpha: 0.18),
+                borderRadius: 12,
+                borderWidth: 1.5,
+                shadowOffset: 2,
+              ),
+              child: Text(
+                errorMessage!,
+                style: const TextStyle(
+                  color: AppTheme.inkDark,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 12.5,
+                ),
+              ),
+            ),
+          ],
           if (viewModel.canSimulatePartner) ...<Widget>[
             const SizedBox(height: 8),
             Align(
               alignment: Alignment.centerLeft,
               child: OutlinedButton.icon(
                 key: simulatePartnerButtonKey,
-                onPressed: viewModel.isLoggingMeal ? null : viewModel.simulatePartnerFeed,
+                onPressed: viewModel.isLoggingMeal
+                    ? null
+                    : (onSimulatePartner ?? viewModel.simulatePartnerFeed),
                 style: OutlinedButton.styleFrom(
-                  visualDensity: VisualDensity.compact,
+                  tapTargetSize: MaterialTapTargetSize.padded,
+                  minimumSize: const Size(64, 44),
                   side: const BorderSide(color: AppTheme.inkDark, width: 1.8),
                   foregroundColor: AppTheme.inkDark,
                   backgroundColor: AppTheme.snoopCollarGold.withValues(

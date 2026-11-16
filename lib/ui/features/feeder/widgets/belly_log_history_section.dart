@@ -25,6 +25,7 @@ class RecentHistorySection extends StatefulWidget {
     super.key,
     required this.petName,
     required this.isExpanded,
+    this.isLoadingHistory = false,
     required this.onToggleExpanded,
     required this.mealEvents,
     required this.treatEvents,
@@ -33,12 +34,14 @@ class RecentHistorySection extends StatefulWidget {
   });
 
   static const Key toggleButtonKey = Key('toggle_history_button');
+  static const Key loadingCardKey = Key('history_loading_card');
   static const Key filterAllKey = Key('history_filter_all');
   static const Key filterMealsKey = Key('history_filter_meals');
   static const Key filterTreatsKey = Key('history_filter_treats');
 
   final String petName;
   final bool isExpanded;
+  final bool isLoadingHistory;
   final VoidCallback onToggleExpanded;
   final List<FeedingEvent> mealEvents;
   final List<TreatEvent> treatEvents;
@@ -129,9 +132,10 @@ class _RecentHistorySectionState extends State<RecentHistorySection> {
           style: OutlinedButton.styleFrom(
             backgroundColor: AppTheme.creamCard,
             foregroundColor: AppTheme.inkDark,
-            visualDensity: VisualDensity.compact,
+            tapTargetSize: MaterialTapTargetSize.padded,
+            minimumSize: const Size(0, 48),
             side: const BorderSide(color: AppTheme.inkDark, width: 2),
-            padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
+            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(16),
             ),
@@ -155,13 +159,45 @@ class _RecentHistorySectionState extends State<RecentHistorySection> {
                   key: chipKey,
                   label: Text(label),
                   selected: _filter == filterValue,
-                  visualDensity: VisualDensity.compact,
+                  materialTapTargetSize: MaterialTapTargetSize.padded,
                   onSelected: (_) => setState(() => _filter = filterValue),
                 ),
             ],
           ),
           const SizedBox(height: 10),
-          if (entries.isEmpty)
+          if (widget.isLoadingHistory && entries.isEmpty)
+            Container(
+              key: RecentHistorySection.loadingCardKey,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
+              decoration: AppTheme.comicCardDecoration(
+                color: AppTheme.creamCard,
+                borderRadius: 16,
+                borderWidth: 2,
+                shadowOffset: 2,
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: <Widget>[
+                  const Icon(
+                    Icons.hourglass_top,
+                    size: 18,
+                    color: AppTheme.inkMuted,
+                  ),
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: Text(
+                      "Loading ${widget.petName}'s 7-day Belly Log...",
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w800,
+                        color: AppTheme.inkDark,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            )
+          else if (entries.isEmpty)
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 16),
               child: Text(
