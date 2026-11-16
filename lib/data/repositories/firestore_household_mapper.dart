@@ -41,12 +41,16 @@ abstract final class FirestoreHouseholdMapper {
   }
 
   static Map<String, Object?> feedingToFirestoreMap(FeedingEvent event) {
+    final trimmedId = event.id.trim();
+    final trimmedWindowId = event.effectiveWindowId.trim();
+    final trimmedWindowLabel = event.effectiveLabel.trim();
+    final trimmedWindowEmoji = event.effectiveEmoji.trim();
     return <String, Object?>{
-      'id': event.id,
+      if (trimmedId.isNotEmpty) 'id': trimmedId,
       'mealPeriod': event.mealPeriod.name,
-      'windowId': event.effectiveWindowId,
-      'windowLabel': event.effectiveLabel,
-      'windowEmoji': event.effectiveEmoji,
+      if (trimmedWindowId.isNotEmpty) 'windowId': trimmedWindowId,
+      if (trimmedWindowLabel.isNotEmpty) 'windowLabel': trimmedWindowLabel,
+      if (trimmedWindowEmoji.isNotEmpty) 'windowEmoji': trimmedWindowEmoji,
       'windowDate': event.windowDate,
       'fedByUid': event.fedByUid,
       'fedByName': event.fedByName,
@@ -64,8 +68,10 @@ abstract final class FirestoreHouseholdMapper {
   }
 
   static Map<String, Object?> treatToFirestoreMap(TreatEvent treat) {
+    final trimmedId = treat.id.trim();
+    final trimmedNote = treat.note?.trim();
     return <String, Object?>{
-      'id': treat.id,
+      if (trimmedId.isNotEmpty) 'id': trimmedId,
       'preset': treat.preset.id,
       'label': treat.label,
       'emoji': treat.emoji,
@@ -75,7 +81,7 @@ abstract final class FirestoreHouseholdMapper {
       'givenByUid': treat.givenByUid,
       'givenByName': treat.givenByName,
       'givenAt': Timestamp.fromDate(treat.givenAt),
-      if (treat.note != null) 'note': treat.note,
+      if (trimmedNote != null && trimmedNote.isNotEmpty) 'note': trimmedNote,
     };
   }
 

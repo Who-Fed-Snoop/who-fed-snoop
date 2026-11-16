@@ -407,6 +407,9 @@ class FirestoreHouseholdRepository implements HouseholdRepository {
       }
 
       final household = FirestoreHouseholdMapper.householdFromFirestore(snap.id, snap.data()!);
+      if (!household.members.containsKey(givenByUid)) {
+        throw StateError('Only household members can log treats.');
+      }
       final newTreat = HouseholdStatePolicy.buildTreatEvent(
         household: household,
         givenByUid: givenByUid,

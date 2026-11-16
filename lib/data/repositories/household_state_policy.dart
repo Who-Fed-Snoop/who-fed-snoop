@@ -254,15 +254,21 @@ abstract final class HouseholdStatePolicy {
     return Map<String, FeedingEvent>.unmodifiable(bounded);
   }
 
-  /// Retains treats for [activeLogicalDate] (and the preceding logical date for midnight safety),
+  static final RegExp _logicalDatePattern = RegExp(r'^\d{4}-\d{2}-\d{2}$');
+
+  /// Retains valid treats for [activeLogicalDate] (and the preceding logical date for midnight safety),
   /// sorted newest-first and capped at 50 entries (`<= 50` Firestore rules limit).
   static List<TreatEvent> pruneTodayTreats(List<TreatEvent> treats, String activeLogicalDate) {
     final prevDate = _previousLogicalDateString(activeLogicalDate);
     final seenIds = <String>{};
     final filtered = <TreatEvent>[];
     for (final treat in treats) {
-      if ((treat.logicalDate == activeLogicalDate || treat.logicalDate == prevDate) &&
-          seenIds.add(treat.id)) {
+      final trimmedId = treat.id.trim();
+      final hasUniqueId = trimmedId.isEmpty || seenIds.add(trimmedId);
+      final hasValidUid = treat.givenByUid.trim().isNotEmpty;
+      final hasValidDate = _logicalDatePattern.hasMatch(treat.logicalDate) &&
+          (treat.logicalDate == activeLogicalDate || treat.logicalDate == prevDate);
+      if (hasValidUid && hasValidDate && hasUniqueId) {
         filtered.add(treat);
       }
     }

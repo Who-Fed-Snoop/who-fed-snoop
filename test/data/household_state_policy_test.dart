@@ -1,6 +1,8 @@
 import 'dart:math';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:who_fed_snoop/data/repositories/firestore_household_mapper.dart';
 import 'package:who_fed_snoop/data/repositories/household_repository.dart';
 import 'package:who_fed_snoop/data/repositories/household_state_policy.dart';
 import 'package:who_fed_snoop/domain/models/feeding_event.dart';
@@ -231,6 +233,133 @@ void main() {
       ];
       final prunedTreats = HouseholdStatePolicy.pruneTodayTreats(treats, '2026-11-08');
       expect(prunedTreats.map((t) => t.id), equals(<String>['prev_day_treat']));
+    });
+
+    test('pruneTodayTreats drops malformed legacy entries and retains distinct empty-id items', () {
+      final now = DateTime(2026, 11, 15, 18, 0);
+      final treats = <TreatEvent>[
+        TreatEvent(
+          id: 'missing_uid',
+          preset: TreatPreset.dentalChew,
+          label: 'Dental Chew',
+          emoji: '🪥',
+          quantity: 1,
+          caloriesPerUnit: 85,
+          logicalDate: '2026-11-15',
+          givenByUid: '   ',
+          givenByName: 'Keni',
+          givenAt: now,
+        ),
+        TreatEvent(
+          id: 'bad_date',
+          preset: TreatPreset.dentalChew,
+          label: 'Dental Chew',
+          emoji: '🪥',
+          quantity: 1,
+          caloriesPerUnit: 85,
+          logicalDate: '2026/11/15',
+          givenByUid: 'uid_keni',
+          givenByName: 'Keni',
+          givenAt: now,
+        ),
+        TreatEvent(
+          id: '',
+          preset: TreatPreset.dentalChew,
+          label: 'Dental Chew',
+          emoji: '🪥',
+          quantity: 1,
+          caloriesPerUnit: 85,
+          logicalDate: '2026-11-15',
+          givenByUid: 'uid_keni',
+          givenByName: 'Keni',
+          givenAt: now.subtract(const Duration(minutes: 5)),
+        ),
+        TreatEvent(
+          id: '',
+          preset: TreatPreset.trainingTreat,
+          label: 'Training Treat',
+          emoji: '🦴',
+          quantity: 1,
+          caloriesPerUnit: 15,
+          logicalDate: '2026-11-15',
+          givenByUid: 'uid_ashley',
+          givenByName: 'Ashley',
+          givenAt: now.subtract(const Duration(minutes: 10)),
+        ),
+      ];
+
+      final pruned = HouseholdStatePolicy.pruneTodayTreats(treats, '2026-11-15');
+      expect(pruned.length, equals(2));
+      expect(pruned.first.preset, equals(TreatPreset.dentalChew));
+      expect(pruned.last.preset, equals(TreatPreset.trainingTreat));
+    });
+
+    test(
+        'FirestoreHouseholdMapper omits empty optional strings and enforces treat/feeding rule contract',
+        () {
+      final now = DateTime(2026, 11, 15, 18, 30);
+      final household = Household(
+        id: 'household_snoop_01',
+        joinCode: 'SNOOP4',
+        petName: 'Snoop',
+        createdAt: now,
+        members: <String, HouseholdMember>{
+          'uid_keni': HouseholdMember(uid: 'uid_keni', name: 'Keni', joinedAt: now),
+        },
+      );
+
+      for (final preset in TreatPreset.values) {
+        final treat = HouseholdStatePolicy.buildTreatEvent(
+          household: household,
+          givenByUid: 'uid_keni',
+          givenByName: 'Keni',
+          now: now,
+          preset: preset,
+        );
+        final map = FirestoreHouseholdMapper.treatToFirestoreMap(treat);
+        expect(map['id'], isA<String>());
+        expect((map['id']! as String).length, inInclusiveRange(1, 80));
+        expect(map['preset'], equals(preset.id));
+        expect(map['label'], equals(preset.label));
+        expect((map['emoji']! as String).length, inInclusiveRange(1, 8));
+        expect(map['quantity'], inInclusiveRange(1, 20));
+        expect(map['caloriesPerUnit'], inInclusiveRange(0, 2000));
+        expect(map['logicalDate'], matches(RegExp(r'^\d{4}-\d{2}-\d{2}$')));
+        expect(map['givenByUid'], equals('uid_keni'));
+        expect(map['givenByName'], equals('Keni'));
+        expect(map['givenAt'], isA<Timestamp>());
+        expect(map.containsKey('note'), isFalse);
+      }
+
+      // Empty id and whitespace-only note must be omitted instead of serialized as ''
+      final legacyTreat = TreatEvent.fromJson(<String, Object?>{
+        'preset': 'dental_chew',
+        'label': 'Dental Chew',
+        'emoji': '🪥',
+        'quantity': 1,
+        'caloriesPerUnit': 85,
+        'logicalDate': '2026-11-15',
+        'givenByUid': 'uid_keni',
+        'givenByName': 'Keni',
+        'givenAt': now.toUtc().toIso8601String(),
+        'note': '   ',
+      });
+      final legacyMap = FirestoreHouseholdMapper.treatToFirestoreMap(legacyTreat);
+      expect(legacyMap.containsKey('id'), isFalse);
+      expect(legacyMap.containsKey('note'), isFalse);
+
+      // Feeding mapper omits empty optional id
+      final legacyFeeding = FeedingEvent(
+        id: '   ',
+        mealPeriod: MealPeriod.dinner,
+        windowDate: '2026-11-15',
+        fedByUid: 'uid_keni',
+        fedByName: 'Keni',
+        fedAt: now,
+      );
+      final feedingMap = FirestoreHouseholdMapper.feedingToFirestoreMap(legacyFeeding);
+      expect(feedingMap.containsKey('id'), isFalse);
+      expect(feedingMap['fedAt'], isA<Timestamp>());
     });
   });
 
