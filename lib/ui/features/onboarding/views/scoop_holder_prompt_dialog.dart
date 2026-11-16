@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../../data/repositories/household_repository.dart';
+import '../../../../data/repositories/household_state_policy.dart';
 import '../../../core/app_theme.dart';
 import '../../../core/snoop_mascot.dart';
 import '../../feeder/view_models/feeder_view_model.dart';
@@ -73,12 +74,7 @@ class _ScoopHolderPromptDialogState extends State<ScoopHolderPromptDialog> {
       return;
     }
 
-    final lower = trimmed.toLowerCase();
-    final uid = lower == 'keni'
-        ? InMemoryHouseholdRepository.keniUid
-        : lower == 'ashley'
-            ? InMemoryHouseholdRepository.ashleyUid
-            : 'uid_${lower.replaceAll(RegExp(r'[^a-z0-9]'), '_')}';
+    final uid = HouseholdStatePolicy.resolveInMemoryUidForName(trimmed);
 
     await _selectScoopHolder(uid: uid, name: trimmed);
   }

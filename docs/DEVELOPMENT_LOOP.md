@@ -34,16 +34,22 @@ Canonical build, test, release, and deploy reference. Auto-synced with stack cha
   - Android intent test: `adb shell am start -a android.intent.action.VIEW -d "https://whofedsnoop.com/tap/household_snoop_01" com.whofedsnoop.who_fed_snoop`
 
 ## 3. Test Suite (`flutter test`)
-Targeted runs: `flutter test test/domain/`, `flutter test test/data/`, `flutter test test/ui/`, or `--plain-name "<filter>"`.
+Targeted runs: `flutter test test/domain/`, `flutter test test/data/`, `flutter test test/ui/`, or `--plain-name "<filter>"`. Shared test doubles/harnesses live in `test/helpers/`.
 
 | File | Coverage |
 | :--- | :--- |
 | `test/domain/meal_window_test.dart` | Default/custom schedules, overnight cutoffs, logical dates, `/join`, `/tap`, `/s` deep links |
 | `test/data/household_repository_test.dart` | Household CRUD, deterministic meal IDs, custom schedules, treat tracking, member name sync |
-| `test/data/feeder_view_model_test.dart` | Non-clobbering 10s LIFO Undo across meals & treats, Scoop Holder persistence & non-clobbering sync, optimistic state, errors |
-| `test/ui/feeder_view_test.dart` | 1-tap feed, Undo, unbound *"Who holds this phone?"* prompt & cold-restart persistence, partner banner, 7-day filters, schedule edits, `360×640`–`412×915` layout |
-| `test/ui/onboarding_sheet_test.dart` | Pack HQ modal, Scoop Holder switching, persona init, `50/40/6` bounds, double-tap guards, overflow checks |
-| `test/ui/treats_and_schedule_ui_test.dart` | `TreatJarCard`, `CustomTreatSheet`, Chonk Alert, treat drawer delete, `HouseholdSettingsSheet` |
+| `test/data/household_state_policy_test.dart` | `HouseholdStatePolicy` rules, `UndoStackController`, `PartnerActivityDetector`, `DeepLinkCoordinator` |
+| `test/data/feeder_view_model_undo_and_treats_test.dart` | Non-clobbering 10s LIFO Undo across meals & treats, treat allowance/rollover, schedule validation |
+| `test/data/feeder_view_model_partner_and_timers_test.dart` | Partner notification banners on undo/treat updates, window transition timer, in-flight & dispose guards |
+| `test/data/feeder_view_model_links_and_scoop_holder_test.dart` | Cold-start `/tap`, `/join`, `/s`, Web hash URL extraction, stream error capture, FB-001 Scoop Holder persistence & sync |
+| `test/ui/feeder_view_core_test.dart` | 1-tap feed, Undo, partner banner, lazy history, `/tap` & `/s`, mascot states, schedule edits, `360×800`–`412×915` typography |
+| `test/ui/feeder_view_treats_history_and_prompt_test.dart` | `TreatJarCard` + LIFO Undo, 7-day Belly Log filters, `ErrorBanner`, `360×640`–`412×915` overflow, FB-001 prompt & cold-restart persistence |
+| `test/ui/onboarding_sheet_test.dart` | Pack HQ modal, persona init, `50/40/6` bounds, schedule card routing, join errors, double-tap submit guards |
+| `test/ui/onboarding_scoop_holder_and_layout_test.dart` | Pack HQ Scoop Holder switching/custom/sync, `360×640`–`412×915` Pack HQ & settings overflow checks |
+| `test/ui/treat_jar_card_test.dart` | `TreatJarCard` presets, Chonk Alert, treat drawer delete, `CustomTreatSheet` validation & double-tap guard, `360×800`–`412×915` layout |
+| `test/ui/household_settings_sheet_test.dart` | `HouseholdSettingsSheet` window add/edit/toggle, logged-today notice, time picker, treat limit, save guard, `360×800`–`412×915` layout |
 
 **Android JVM Unit Tests (`android/app/src/test/`):** `junit:junit:4.13.2` + `org.json:json:20240303` covering `MealScheduleModel`, `MealWindowResolver` (overnight/pre-first-window wrap-around, multi-rollover offline resolution, treat date rollover, ISO-8601 parsing), `WidgetFirestoreSync.parseAndResolve`, and `WidgetContentFormatter` responsive tiers.
 

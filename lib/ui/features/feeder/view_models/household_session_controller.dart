@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../../../../data/repositories/household_repository.dart';
+import '../../../../data/repositories/household_state_policy.dart';
 import '../../../../data/services/scoop_holder_store.dart';
 import '../../../../domain/models/feeding_event.dart';
 import '../../../../domain/models/household.dart';
@@ -95,12 +96,19 @@ class HouseholdSessionController {
       return;
     }
     _isDeviceBound = true;
-    _currentMemberName = _truncateMemberName(storedName);
+    _currentMemberName = HouseholdStatePolicy.sanitizeName(
+      storedName,
+      fallback: 'Member',
+      maxLength: 50,
+    );
     if (_repository is InMemoryHouseholdRepository) {
       final storedUid = store.getMemberUid()?.trim();
       _currentMemberUid = (storedUid != null && storedUid.isNotEmpty)
           ? storedUid
-          : _resolveInMemoryUidForName(storedName, fallback: fallbackUid);
+          : HouseholdStatePolicy.resolveInMemoryUidForName(
+              storedName,
+              fallback: fallbackUid,
+            );
     }
   }
 
@@ -201,7 +209,11 @@ class HouseholdSessionController {
   /// Binds or switches the active phone Scoop Holder and syncs `members[uid].name`.
   Future<void> switchActiveMember({required String uid, required String name}) async {
     if (_isDisposed) return;
-    final cleanName = _truncateMemberName(name);
+    final cleanName = HouseholdStatePolicy.sanitizeName(
+      name,
+      fallback: 'Member',
+      maxLength: 50,
+    );
     if (_repository is InMemoryHouseholdRepository) _currentMemberUid = uid;
     _bindLocalMember(cleanName);
     _onChanged();
@@ -273,7 +285,13 @@ class HouseholdSessionController {
     try {
       final target = await loadHousehold();
       if (_isDisposed) return;
-      _bindLocalMember(memberName.trim().isEmpty ? fallbackName : _truncateMemberName(memberName));
+      _bindLocalMember(
+        HouseholdStatePolicy.sanitizeName(
+          memberName,
+          fallback: fallbackName,
+          maxLength: 50,
+        ),
+      );
       _householdId = target.id;
       subscribeToHousehold(target.id, initialHousehold: target);
       await _scoopHolderStore?.saveScoopHolder(name: _currentMemberName, uid: _currentMemberUid);
@@ -347,18 +365,5 @@ class HouseholdSessionController {
 
   void _completeCompleter(Completer<void>? completer) {
     if (completer != null && !completer.isCompleted) completer.complete();
-  }
-
-  static String _truncateMemberName(String raw) {
-    final trimmed = raw.trim();
-    if (trimmed.isEmpty) return 'Member';
-    return trimmed.length <= 50 ? trimmed : trimmed.substring(0, 50);
-  }
-
-  static String _resolveInMemoryUidForName(String name, {required String fallback}) {
-    final lower = name.trim().toLowerCase();
-    if (lower == 'keni') return InMemoryHouseholdRepository.keniUid;
-    if (lower == 'ashley') return InMemoryHouseholdRepository.ashleyUid;
-    return fallback;
   }
 }

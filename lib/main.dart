@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'data/repositories/firestore_household_repository.dart';
 import 'data/repositories/household_repository.dart';
+import 'data/repositories/household_state_policy.dart';
 import 'data/services/scoop_holder_store.dart';
 import 'data/services/widget_sync_service.dart';
 import 'firebase_options.dart';
@@ -32,13 +33,14 @@ String _resolveInitialInMemoryUid({
   required String? savedUid,
   required String? savedName,
 }) {
-  if (savedUid != null && savedUid.trim().isNotEmpty) {
-    return savedUid.trim();
+  final trimmedUid = savedUid?.trim();
+  if (trimmedUid != null && trimmedUid.isNotEmpty) {
+    return trimmedUid;
   }
-  if (savedName?.trim().toLowerCase() == 'ashley') {
-    return InMemoryHouseholdRepository.ashleyUid;
-  }
-  return InMemoryHouseholdRepository.keniUid;
+  return HouseholdStatePolicy.resolveInMemoryUidForName(
+    savedName ?? '',
+    fallback: HouseholdStatePolicy.keniUid,
+  );
 }
 
 Future<void> main() async {

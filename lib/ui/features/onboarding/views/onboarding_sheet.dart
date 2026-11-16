@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../../../../data/repositories/household_repository.dart';
+import '../../../../data/repositories/household_state_policy.dart';
 import '../../../../domain/models/deep_link_route.dart';
 import '../../../core/app_theme.dart';
 import '../../feeder/view_models/feeder_view_model.dart';
@@ -68,24 +68,24 @@ class _OnboardingSheetState extends State<OnboardingSheet> {
     super.initState();
     final vm = widget.viewModel;
     _nameController = TextEditingController(
-      text: _initText(
+      text: HouseholdStatePolicy.sanitizeName(
         vm.currentMemberName,
-        'Keni',
-        OnboardingSheet.maxMemberNameLength,
+        fallback: 'Keni',
+        maxLength: OnboardingSheet.maxMemberNameLength,
       ),
     );
     _petNameController = TextEditingController(
-      text: _initText(
+      text: HouseholdStatePolicy.sanitizeName(
         vm.household?.petName ?? '',
-        'Snoop',
-        OnboardingSheet.maxPetNameLength,
+        fallback: 'Snoop',
+        maxLength: OnboardingSheet.maxPetNameLength,
       ),
     );
     _codeController = TextEditingController(
-      text: _initText(
+      text: HouseholdStatePolicy.sanitizeName(
         vm.household?.joinCode ?? '',
-        'SNOOP4',
-        OnboardingSheet.joinCodeLength,
+        fallback: 'SNOOP4',
+        maxLength: OnboardingSheet.joinCodeLength,
       ),
     );
   }
@@ -97,14 +97,6 @@ class _OnboardingSheetState extends State<OnboardingSheet> {
     _codeController.dispose();
     super.dispose();
   }
-
-  static String _initText(String raw, String fallback, int maxLength) {
-    final trimmed = raw.trim();
-    return _truncate(trimmed.isEmpty ? fallback : trimmed, maxLength);
-  }
-
-  static String _truncate(String value, int maxLength) =>
-      value.length <= maxLength ? value : value.substring(0, maxLength);
 
   static String _cleanErrorMessage(Object error) {
     final raw = error.toString().trim();
@@ -126,9 +118,10 @@ class _OnboardingSheetState extends State<OnboardingSheet> {
     if (_isSubmitting || _didPop) return;
     await widget.viewModel.switchActiveMember(uid: uid, name: name);
     if (!mounted) return;
-    _nameController.text = _truncate(
+    _nameController.text = HouseholdStatePolicy.sanitizeName(
       widget.viewModel.currentMemberName,
-      OnboardingSheet.maxMemberNameLength,
+      fallback: 'Member',
+      maxLength: OnboardingSheet.maxMemberNameLength,
     );
   }
 
@@ -146,12 +139,7 @@ class _OnboardingSheetState extends State<OnboardingSheet> {
     );
 
     if (chosenName == null || !mounted) return;
-    final lower = chosenName.toLowerCase();
-    final uid = lower == 'keni'
-        ? InMemoryHouseholdRepository.keniUid
-        : lower == 'ashley'
-            ? InMemoryHouseholdRepository.ashleyUid
-            : 'uid_${lower.replaceAll(RegExp(r'[^a-z0-9]'), '_')}';
+    final uid = HouseholdStatePolicy.resolveInMemoryUidForName(chosenName);
     await _selectScoopHolder(uid: uid, name: chosenName);
   }
 
